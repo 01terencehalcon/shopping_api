@@ -1,0 +1,24 @@
+﻿# Secrets / local configuration
+conn.env
+
+# Build output
+bin/
+obj/
+
+# Publish output
+publish/
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+
+# Test results
+TestResults/
+[Tt]est[Rr]esults/
+
+# OS noise
+.DS_Store
+Thumbs.db
