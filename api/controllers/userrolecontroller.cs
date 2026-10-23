@@ -53,15 +53,8 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<IEnumerable<UserroleResponse>>> GetAll()
         {
-            try
-            {
-                var result = await _repository.GetAllAsync();
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetAllAsync();
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
@@ -71,17 +64,10 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<UserroleResponse>> GetById(int id)
         {
-            try
-            {
-                var entity = await _repository.GetByIdAsync(id);
-                if (entity == null)
-                    return NotFound(new { message = "Userrole not found" });
-                return Ok(ToResponse(entity));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var entity = await _repository.GetByIdAsync(id);
+            if (entity == null)
+                return NotFound(new { message = "Userrole not found" });
+            return Ok(ToResponse(entity));
         }
 
         /// <summary>
@@ -91,21 +77,14 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<IEnumerable<UserroleResponse>>> SearchByFilterExact([FromQuery] SearchByFilterRequest request)
         {
-            try
+            IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
+            if (filters.Count == 0)
             {
-                IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
-                if (filters.Count == 0)
-                {
-                    return BadRequest(new { message = "At least one filter must be provided." });
-                }
+                return BadRequest(new { message = "At least one filter must be provided." });
+            }
 
-                var result = await _repository.GetFilteredExactAsync(filters);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetFilteredExactAsync(filters);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
@@ -115,21 +94,14 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<IEnumerable<UserroleResponse>>> SearchByFilterLike([FromQuery] SearchByFilterRequest request)
         {
-            try
+            IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
+            if (filters.Count == 0)
             {
-                IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
-                if (filters.Count == 0)
-                {
-                    return BadRequest(new { message = "At least one filter must be provided." });
-                }
+                return BadRequest(new { message = "At least one filter must be provided." });
+            }
 
-                var result = await _repository.GetFilteredLikeAsync(filters);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetFilteredLikeAsync(filters);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
@@ -139,15 +111,8 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<IEnumerable<UserroleResponse>>> SearchAll([FromQuery] string query)
         {
-            try
-            {
-                var result = await _repository.SearchAsyncAll(query);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.SearchAsyncAll(query);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
@@ -157,23 +122,16 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult> GetPaginated(int pageNumber = 1, int pageSize = 25)
         {
-            try
+            var pagedResult = await _repository.GetPaginatedAsync(pageNumber, pageSize);
+            var response = new PaginationModel<UserroleResponse>
             {
-                var pagedResult = await _repository.GetPaginatedAsync(pageNumber, pageSize);
-                var response = new PaginationModel<UserroleResponse>
-                {
-                    Items = pagedResult.Items.Select(ToResponse).ToList(),
-                    TotalCount = pagedResult.TotalCount,
-                    PageSize = pagedResult.PageSize,
-                    CurrentPage = pagedResult.CurrentPage
-                };
+                Items = pagedResult.Items.Select(ToResponse).ToList(),
+                TotalCount = pagedResult.TotalCount,
+                PageSize = pagedResult.PageSize,
+                CurrentPage = pagedResult.CurrentPage
+            };
 
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            return Ok(response);
         }
 
         /// <summary>
@@ -183,24 +141,17 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> Create([FromBody] CreateUserroleRequest request)
         {
-            try
-            {
-                // Validation
-                if (string.IsNullOrWhiteSpace(request.UserRole))
-                    return BadRequest(new { message = "UserRole is required" });
+            // Validation
+            if (string.IsNullOrWhiteSpace(request.UserRole))
+                return BadRequest(new { message = "UserRole is required" });
 
-                var entity = new Userrole
-                {
-                    UserRole = request.UserRole,
-                };
-
-                await _repository.AddAsync(entity);
-                return Ok(new { message = "Userrole created successfully" });
-            }
-            catch (Exception ex)
+            var entity = new Userrole
             {
-                return StatusCode(500, new { message = ex.Message });
-            }
+                UserRole = request.UserRole,
+            };
+
+            await _repository.AddAsync(entity);
+            return Ok(new { message = "Userrole created successfully" });
         }
 
         /// <summary>
@@ -210,27 +161,20 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateUserroleRequest request)
         {
-            try
-            {
-                // Validation
-                if (string.IsNullOrWhiteSpace(request.UserRole))
-                    return BadRequest(new { message = "UserRole is required" });
+            // Validation
+            if (string.IsNullOrWhiteSpace(request.UserRole))
+                return BadRequest(new { message = "UserRole is required" });
 
-                // Get existing entity
-                var existingEntity = await _repository.GetByIdAsync(id);
-                if (existingEntity == null)
-                    return NotFound(new { message = "Userrole not found" });
+            // Get existing entity
+            var existingEntity = await _repository.GetByIdAsync(id);
+            if (existingEntity == null)
+                return NotFound(new { message = "Userrole not found" });
 
-                // Update properties
-                existingEntity.UserRole = request.UserRole;
+            // Update properties
+            existingEntity.UserRole = request.UserRole;
 
-                await _repository.UpdateAsync(existingEntity);
-                return Ok(new { message = "Userrole updated successfully" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            await _repository.UpdateAsync(existingEntity);
+            return Ok(new { message = "Userrole updated successfully" });
         }
 
         /// <summary>
@@ -240,20 +184,13 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> Delete(int id)
         {
-            try
-            {
-                // Get existing entity
-                var existingEntity = await _repository.GetByIdAsync(id);
-                if (existingEntity == null)
-                    return NotFound(new { message = "Userrole not found" });
+            // Get existing entity
+            var existingEntity = await _repository.GetByIdAsync(id);
+            if (existingEntity == null)
+                return NotFound(new { message = "Userrole not found" });
 
-                await _repository.DeleteAsync(id);
-                return Ok(new { message = "Userrole deleted successfully" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            await _repository.DeleteAsync(id);
+            return Ok(new { message = "Userrole deleted successfully" });
         }
 
         /// <summary>
@@ -263,15 +200,8 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> DeleteAll()
         {
-            try
-            {
-                await _repository.DeleteAllAsync();
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            await _repository.DeleteAllAsync();
+            return NoContent();
         }
 
         /// <summary>
@@ -281,26 +211,19 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> BulkUpload([FromBody] List<CreateUserroleRequest> dataList)
         {
-            try
+            if (dataList == null || dataList.Count == 0)
+                return BadRequest("Data list cannot be null or empty.");
+
+            if (dataList.Any(item => string.IsNullOrWhiteSpace(item.UserRole)))
+                return BadRequest(new { message = "One or more records have empty UserRole." });
+
+            var entities = dataList.Select(item => new Userrole
             {
-                if (dataList == null || dataList.Count == 0)
-                    return BadRequest("Data list cannot be null or empty.");
+                UserRole = item.UserRole,
+            }).ToList();
 
-                if (dataList.Any(item => string.IsNullOrWhiteSpace(item.UserRole)))
-                    return BadRequest(new { message = "One or more records have empty UserRole." });
-
-                var entities = dataList.Select(item => new Userrole
-                {
-                    UserRole = item.UserRole,
-                }).ToList();
-
-                await _repository.BulkUploadAsync(entities);
-                return Ok(new { message = $"Successfully uploaded {entities.Count} userrole records." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            await _repository.BulkUploadAsync(entities);
+            return Ok(new { message = $"Successfully uploaded {entities.Count} userrole records." });
         }
     }
 }

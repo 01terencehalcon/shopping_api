@@ -1,4 +1,4 @@
-﻿# Secrets / local configuration
+# Secrets / local configuration
 conn.env
 
 # Build output
@@ -22,3 +22,6 @@ TestResults/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Uploaded product images (runtime files, not source)
+wwwroot/uploads/

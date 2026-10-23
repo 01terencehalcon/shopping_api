@@ -30,6 +30,7 @@ namespace ClothesShopping.Api.Controllers
                 UserName = entity.UserName,
                 Email = entity.Email,
                 UserRoleId = entity.UserRoleId,
+                Status = entity.Status,
             };
         }
 
@@ -49,279 +50,291 @@ namespace ClothesShopping.Api.Controllers
         }
 
         /// <summary>
-        /// Get all userman (UserAccess only)
+        /// Get all userman (AdminAccess only)
         /// </summary>
         [HttpGet]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult<IEnumerable<UsermanResponse>>> GetAll()
         {
-            try
-            {
-                var result = await _repository.GetAllAsync();
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetAllAsync();
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
-        /// Get userman by ID (UserAccess only)
+        /// Get userman by ID (own record or admin)
         /// </summary>
         [HttpGet("{id}")]
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<UsermanResponse>> GetById(int id)
         {
-            try
-            {
-                var entity = await _repository.GetByIdAsync(id);
-                if (entity == null)
-                    return NotFound(new { message = "Userman not found" });
-                return Ok(ToResponse(entity));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && id != currentUserId)
+                return NotFound(new { message = "Userman not found" });
+
+            var entity = await _repository.GetByIdAsync(id);
+            if (entity == null)
+                return NotFound(new { message = "Userman not found" });
+            return Ok(ToResponse(entity));
         }
 
         /// <summary>
-        /// Dynamic exact-match filters for userman (UserAccess only)
+        /// Dynamic exact-match filters for userman (AdminAccess only)
         /// </summary>
         [HttpGet("search-by-filter-ematch")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult<IEnumerable<UsermanResponse>>> SearchByFilterExact([FromQuery] SearchByFilterRequest request)
         {
-            try
+            IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
+            if (filters.Count == 0)
             {
-                IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
-                if (filters.Count == 0)
-                {
-                    return BadRequest(new { message = "At least one filter must be provided." });
-                }
+                return BadRequest(new { message = "At least one filter must be provided." });
+            }
 
-                var result = await _repository.GetFilteredExactAsync(filters);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetFilteredExactAsync(filters);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
-        /// Dynamic partial-match filters for userman (UserAccess only)
+        /// Dynamic partial-match filters for userman (AdminAccess only)
         /// </summary>
         [HttpGet("search-by-filter-lmatch")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult<IEnumerable<UsermanResponse>>> SearchByFilterLike([FromQuery] SearchByFilterRequest request)
         {
-            try
+            IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
+            if (filters.Count == 0)
             {
-                IReadOnlyDictionary<string, object?> filters = BuildFilterMap(request);
-                if (filters.Count == 0)
-                {
-                    return BadRequest(new { message = "At least one filter must be provided." });
-                }
+                return BadRequest(new { message = "At least one filter must be provided." });
+            }
 
-                var result = await _repository.GetFilteredLikeAsync(filters);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.GetFilteredLikeAsync(filters);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
-        /// Search all userman (UserAccess only)
+        /// Search all userman (AdminAccess only)
         /// </summary>
         [HttpGet("search-all")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult<IEnumerable<UsermanResponse>>> SearchAll([FromQuery] string query)
         {
-            try
-            {
-                var result = await _repository.SearchAsyncAll(query);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            var result = await _repository.SearchAsyncAll(query);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>
-        /// Get paginated userman (UserAccess only)
+        /// Get paginated userman (AdminAccess only)
         /// </summary>
         [HttpGet("paginated")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult> GetPaginated(int pageNumber = 1, int pageSize = 25)
         {
-            try
+            var pagedResult = await _repository.GetPaginatedAsync(pageNumber, pageSize);
+            var response = new PaginationModel<UsermanResponse>
             {
-                var pagedResult = await _repository.GetPaginatedAsync(pageNumber, pageSize);
-                var response = new PaginationModel<UsermanResponse>
-                {
-                    Items = pagedResult.Items.Select(ToResponse).ToList(),
-                    TotalCount = pagedResult.TotalCount,
-                    PageSize = pagedResult.PageSize,
-                    CurrentPage = pagedResult.CurrentPage
-                };
+                Items = pagedResult.Items.Select(ToResponse).ToList(),
+                TotalCount = pagedResult.TotalCount,
+                PageSize = pagedResult.PageSize,
+                CurrentPage = pagedResult.CurrentPage
+            };
 
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            return Ok(response);
         }
 
         /// <summary>
-        /// Create new userman (UserAccess only)
+        /// Create new userman (AdminAccess only)
         /// </summary>
         [HttpPost]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> Create([FromBody] CreateUsermanRequest request)
         {
-            try
-            {
-                // Validation
-                if (string.IsNullOrWhiteSpace(request.UserName))
-                    return BadRequest(new { message = "UserName is required" });
-                if (string.IsNullOrWhiteSpace(request.Password))
-                    return BadRequest(new { message = "Password is required" });
+            // Validation
+            if (string.IsNullOrWhiteSpace(request.UserName))
+                return BadRequest(new { message = "UserName is required" });
+            if (string.IsNullOrWhiteSpace(request.Password))
+                return BadRequest(new { message = "Password is required" });
+            if (request.UserRoleId != 1 && request.UserRoleId != 2 && request.UserRoleId != 3)
+                return BadRequest(new { message = "Invalid role. Role must be 1 (Admin), 2 (Staff), or 3 (Customer)." });
 
-                var entity = new Userman
-                {
-                    UserName = request.UserName,
-                    Email = request.Email,
-                    UserPass = PasswordHasher.Hash(request.Password),
-                    UserRoleId = request.UserRoleId,
-                };
-
-                await _repository.AddAsync(entity);
-                return Ok(new { message = "Userman created successfully" });
-            }
-            catch (Exception ex)
+            var entity = new Userman
             {
-                return StatusCode(500, new { message = ex.Message });
-            }
+                UserName = request.UserName,
+                Email = request.Email,
+                UserPass = PasswordHasher.Hash(request.Password),
+                UserRoleId = request.UserRoleId,
+            };
+
+            await _repository.AddAsync(entity);
+            return Ok(new { message = "Userman created successfully" });
         }
 
         /// <summary>
-        /// Update userman (UserAccess only)
+        /// List pending staff accounts (AdminAccess only)
+        /// </summary>
+        [HttpGet("pending")]
+        [Authorize(Policy = "AdminAccess")]
+        public async Task<ActionResult<IEnumerable<UsermanResponse>>> GetPending()
+        {
+            var pending = await _repository.GetPendingStaffAsync();
+            return Ok(pending.Select(ToResponse).ToList());
+        }
+
+        /// <summary>
+        /// Approve pending staff account (AdminAccess only)
+        /// </summary>
+        [HttpPost("{id}/approve")]
+        [Authorize(Policy = "AdminAccess")]
+        public async Task<IActionResult> Approve(int id)
+        {
+            var user = await _repository.GetByIdAsync(id);
+            if (user == null)
+            {
+                return NotFound(new { message = "Userman not found" });
+            }
+
+            user.Status = "active";
+            await _repository.UpdateAsync(user);
+            return Ok(new { message = "Staff account approved successfully.", user = ToResponse(user) });
+        }
+
+        /// <summary>
+        /// Reject pending staff account (AdminAccess only)
+        /// </summary>
+        [HttpPost("{id}/reject")]
+        [Authorize(Policy = "AdminAccess")]
+        public async Task<IActionResult> Reject(int id)
+        {
+            var user = await _repository.GetByIdAsync(id);
+            if (user == null)
+            {
+                return NotFound(new { message = "Userman not found" });
+            }
+
+            user.Status = "rejected";
+            await _repository.UpdateAsync(user);
+            return Ok(new { message = "Staff account rejected.", user = ToResponse(user) });
+        }
+
+        /// <summary>
+        /// Update userman (AdminAccess only)
         /// </summary>
         [HttpPut("{id}")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateUsermanRequest request)
         {
-            try
+            // Validation
+            if (string.IsNullOrWhiteSpace(request.UserName))
+                return BadRequest(new { message = "UserName is required" });
+
+            if (request.UserRoleId != 1 && request.UserRoleId != 2 && request.UserRoleId != 3)
+                return BadRequest(new { message = "Invalid role. Role must be 1 (Admin), 2 (Staff), or 3 (Customer)." });
+
+            // Get existing entity
+            var existingEntity = await _repository.GetByIdAsync(id);
+            if (existingEntity == null)
+                return NotFound(new { message = "Userman not found" });
+
+            // Rule: A user must never be able to change their own role
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (id == currentUserId && request.UserRoleId != existingEntity.UserRoleId)
             {
-                // Validation
-                if (string.IsNullOrWhiteSpace(request.UserName))
-                    return BadRequest(new { message = "UserName is required" });
-
-                // Get existing entity
-                var existingEntity = await _repository.GetByIdAsync(id);
-                if (existingEntity == null)
-                    return NotFound(new { message = "Userman not found" });
-
-                // Update properties
-                existingEntity.UserName = request.UserName;
-                if (request.Email != null)
-                {
-                    existingEntity.Email = request.Email;
-                }
-                if (!string.IsNullOrWhiteSpace(request.NewPassword))
-                {
-                    existingEntity.UserPass = PasswordHasher.Hash(request.NewPassword);
-                }
-                existingEntity.UserRoleId = request.UserRoleId;
-
-                await _repository.UpdateAsync(existingEntity);
-                return Ok(new { message = "Userman updated successfully" });
+                return BadRequest(new { message = "You cannot change your own role." });
             }
-            catch (Exception ex)
+
+            // Rule: Admins can't delete or demote the last remaining active admin
+            if (existingEntity.UserRoleId == 1 && string.Equals(existingEntity.Status, "active", StringComparison.OrdinalIgnoreCase) && request.UserRoleId != 1)
             {
-                return StatusCode(500, new { message = ex.Message });
+                int activeAdminCount = await _repository.CountActiveAdminsAsync();
+                if (activeAdminCount <= 1)
+                {
+                    return BadRequest(new { message = "Cannot demote the last remaining active admin." });
+                }
             }
+
+            // Update properties
+            existingEntity.UserName = request.UserName;
+            if (request.Email != null)
+            {
+                existingEntity.Email = request.Email;
+            }
+            if (!string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                existingEntity.UserPass = PasswordHasher.Hash(request.NewPassword);
+            }
+            existingEntity.UserRoleId = request.UserRoleId;
+
+            await _repository.UpdateAsync(existingEntity);
+            return Ok(new { message = "Userman updated successfully" });
         }
 
         /// <summary>
-        /// Delete userman (UserAccess only)
+        /// Delete userman (AdminAccess only)
         /// </summary>
         [HttpDelete("{id}")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> Delete(int id)
         {
-            try
-            {
-                // Get existing entity
-                var existingEntity = await _repository.GetByIdAsync(id);
-                if (existingEntity == null)
-                    return NotFound(new { message = "Userman not found" });
+            // Get existing entity
+            var existingEntity = await _repository.GetByIdAsync(id);
+            if (existingEntity == null)
+                return NotFound(new { message = "Userman not found" });
 
-                await _repository.DeleteAsync(id);
-                return Ok(new { message = "Userman deleted successfully" });
-            }
-            catch (Exception ex)
+            // Rule: Admins can't delete the last remaining active admin
+            if (existingEntity.UserRoleId == 1 && string.Equals(existingEntity.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
-                return StatusCode(500, new { message = ex.Message });
+                int activeAdminCount = await _repository.CountActiveAdminsAsync();
+                if (activeAdminCount <= 1)
+                {
+                    return BadRequest(new { message = "Cannot delete the last remaining active admin." });
+                }
             }
+
+            await _repository.DeleteAsync(id);
+            return Ok(new { message = "Userman deleted successfully" });
         }
 
         /// <summary>
-        /// Delete all userman (UserAccess only)
+        /// Delete all userman (AdminAccess only)
         /// </summary>
         [HttpDelete]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> DeleteAll()
         {
-            try
+            int activeAdminCount = await _repository.CountActiveAdminsAsync();
+            if (activeAdminCount > 0)
             {
-                await _repository.DeleteAllAsync();
-                return NoContent();
+                return BadRequest(new { message = "Cannot delete all users while active admin accounts exist." });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+
+            await _repository.DeleteAllAsync();
+            return NoContent();
         }
 
         /// <summary>
-        /// Bulk upload userman (UserAccess only)
+        /// Bulk upload userman (AdminAccess only)
         /// </summary>
         [HttpPost("bulk-upload")]
-        [Authorize(Policy = "UserAccess")]
+        [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> BulkUpload([FromBody] List<CreateUsermanRequest> dataList)
         {
-            try
+            if (dataList == null || dataList.Count == 0)
+                return BadRequest("Data list cannot be null or empty.");
+
+            if (dataList.Any(item => string.IsNullOrWhiteSpace(item.UserName)))
+                return BadRequest(new { message = "One or more records have empty UserName." });
+            if (dataList.Any(item => string.IsNullOrWhiteSpace(item.Password)))
+                return BadRequest(new { message = "One or more records have empty Password." });
+
+            var entities = dataList.Select(item => new Userman
             {
-                if (dataList == null || dataList.Count == 0)
-                    return BadRequest("Data list cannot be null or empty.");
+                UserName = item.UserName,
+                Email = item.Email,
+                UserPass = PasswordHasher.Hash(item.Password),
+                UserRoleId = item.UserRoleId,
+            }).ToList();
 
-                if (dataList.Any(item => string.IsNullOrWhiteSpace(item.UserName)))
-                    return BadRequest(new { message = "One or more records have empty UserName." });
-                if (dataList.Any(item => string.IsNullOrWhiteSpace(item.Password)))
-                    return BadRequest(new { message = "One or more records have empty Password." });
-
-                var entities = dataList.Select(item => new Userman
-                {
-                    UserName = item.UserName,
-                    Email = item.Email,
-                    UserPass = PasswordHasher.Hash(item.Password),
-                    UserRoleId = item.UserRoleId,
-                }).ToList();
-
-                await _repository.BulkUploadAsync(entities);
-                return Ok(new { message = $"Successfully uploaded {entities.Count} userman records." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
+            await _repository.BulkUploadAsync(entities);
+            return Ok(new { message = $"Successfully uploaded {entities.Count} userman records." });
         }
     }
 }

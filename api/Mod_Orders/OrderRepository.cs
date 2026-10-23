@@ -51,11 +51,7 @@ namespace ClothesShopping.Api.OrdersModule
         public async Task<PaginationModel<Order>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"orders\"", MapRow);
-                return new PaginationModel<Order> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"orders\" ORDER BY \"id\" LIMIT @pageSize OFFSET @offset",
@@ -97,5 +93,64 @@ namespace ClothesShopping.Api.OrdersModule
         public async Task DeleteAsync(int id)
             => await ExecuteNonQueryAsync("DELETE FROM \"orders\" WHERE \"id\" = @id",
                 new[] { CreateParameter("id", id) });
+
+        public async Task<int> CreateOrderTransactionalAsync(
+            int userId,
+            double total,
+            IReadOnlyList<(int ProductId, int Quantity, double Price)> items,
+            int cartId)
+        {
+            return await WithTransactionAsync<int>(async (conn, tx) =>
+            {
+                // 1. Decrement stock for each item — fails if insufficient
+                foreach (var (productId, quantity, _) in items)
+                {
+                    var affected = await ExecuteNonQueryAsync(
+                        conn, tx,
+                        "UPDATE \"products\" SET \"stock\" = \"stock\" - @qty WHERE \"id\" = @id AND \"stock\" >= @qty",
+                        new[] { CreateParameter("id", productId), CreateParameter("qty", quantity) });
+
+                    if (affected == 0)
+                        throw new InvalidOperationException($"Insufficient stock for product {productId}.");
+                }
+
+                // 2. Create the order
+                var orderId = await ExecuteScalarAsync<long>(
+                    conn, tx,
+                    "INSERT INTO \"orders\" (\"user_id\", \"total\", \"order_date\", \"status\") " +
+                    "VALUES (@userId, @total, @orderDate, @status); SELECT last_insert_rowid();",
+                    new[]
+                    {
+                        CreateParameter("userId",    userId),
+                        CreateParameter("total",     total),
+                        CreateParameter("orderDate", DateTime.UtcNow.ToString("o")),
+                        CreateParameter("status",    "pending"),
+                    });
+
+                // 3. Create order items
+                foreach (var (productId, quantity, price) in items)
+                {
+                    await ExecuteNonQueryAsync(
+                        conn, tx,
+                        "INSERT INTO \"order_items\" (\"order_id\", \"product_id\", \"quantity\", \"price\") " +
+                        "VALUES (@orderId, @productId, @quantity, @price)",
+                        new[]
+                        {
+                            CreateParameter("orderId",   (int)orderId),
+                            CreateParameter("productId", productId),
+                            CreateParameter("quantity",  quantity),
+                            CreateParameter("price",     price),
+                        });
+                }
+
+                // 4. Clear the cart
+                await ExecuteNonQueryAsync(
+                    conn, tx,
+                    "DELETE FROM \"cart_items\" WHERE \"cart_id\" = @cartId",
+                    new[] { CreateParameter("cartId", cartId) });
+
+                return (int)orderId;
+            });
+        }
     }
 }

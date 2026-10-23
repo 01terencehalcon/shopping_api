@@ -24,6 +24,7 @@ namespace ClothesShopping.Api.UsermanModule
                     Email = ReadValue<string>(reader, "email", string.Empty),
                     UserPass = ReadValue<string>(reader, "password", string.Empty),
                     UserRoleId = ReadValue<int>(reader, "role_id", 0),
+                    Status = ReadValue<string>(reader, "status", "active"),
                 };
             }
             catch (Exception ex)
@@ -82,12 +83,13 @@ namespace ClothesShopping.Api.UsermanModule
         /// </summary>
         public async Task AddAsync(Userman entity)
         {
-            var sql = "INSERT INTO \"users\" (\"name\", \"email\", \"password\", \"role_id\") VALUES (@userName, @email, @userPass, @userRoleId)";
+            var sql = "INSERT INTO \"users\" (\"name\", \"email\", \"password\", \"role_id\", \"status\") VALUES (@userName, @email, @userPass, @userRoleId, @status)";
             var dbParameters = new List<DbParameter>();
             dbParameters.Add(CreateParameter("userName", entity.UserName));
             dbParameters.Add(CreateParameter("email", entity.Email));
             dbParameters.Add(CreateParameter("userPass", entity.UserPass));
             dbParameters.Add(CreateParameter("userRoleId", entity.UserRoleId));
+            dbParameters.Add(CreateParameter("status", entity.Status));
             await ExecuteNonQueryAsync(sql, dbParameters.ToArray());
         }
 
@@ -96,13 +98,14 @@ namespace ClothesShopping.Api.UsermanModule
         /// </summary>
         public async Task UpdateAsync(Userman entity)
         {
-            var sql = "UPDATE \"users\" SET \"name\" = @userName, \"email\" = @email, \"password\" = @userPass, \"role_id\" = @userRoleId WHERE \"id\" = @userId";
+            var sql = "UPDATE \"users\" SET \"name\" = @userName, \"email\" = @email, \"password\" = @userPass, \"role_id\" = @userRoleId, \"status\" = @status WHERE \"id\" = @userId";
             var dbParameters = new List<DbParameter>();
             dbParameters.Add(CreateParameter("userId", entity.UserId));
             dbParameters.Add(CreateParameter("userName", entity.UserName));
             dbParameters.Add(CreateParameter("email", entity.Email));
             dbParameters.Add(CreateParameter("userPass", entity.UserPass));
             dbParameters.Add(CreateParameter("userRoleId", entity.UserRoleId));
+            dbParameters.Add(CreateParameter("status", entity.Status));
             await ExecuteNonQueryAsync(sql, dbParameters.ToArray());
         }
 
@@ -280,23 +283,7 @@ namespace ClothesShopping.Api.UsermanModule
                 pageNumber = 1;
             }
 
-            if (pageSize < 0)
-            {
-                pageSize = 0;
-            }
-
-            if (pageSize <= 0)
-            {
-                var allItems = await ExecuteReaderToListAsync("SELECT * FROM \"users\"", MapReaderToUserman);
-                var totalRecords = allItems.Count;
-                return new PaginationModel<Userman>()
-                {
-                    Items = allItems,
-                    TotalCount = totalRecords,
-                    PageSize = totalRecords,
-                    CurrentPage = 1
-                };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             string sql = "SELECT * FROM \"users\" ORDER BY \"id\" LIMIT @pageSize OFFSET @offset";
             var items = await ExecuteReaderToListAsync(sql, MapReaderToUserman, new[]
@@ -326,6 +313,62 @@ namespace ClothesShopping.Api.UsermanModule
             {
                 await AddAsync(item);
             }
+        }
+
+        public async Task EnsureDatabaseMigratedAsync()
+        {
+            await using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            bool tableExists = false;
+            bool hasStatusColumn = false;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA table_info(\"users\");";
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    tableExists = true;
+                    var colName = reader["name"]?.ToString() ?? string.Empty;
+                    if (string.Equals(colName, "status", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasStatusColumn = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!tableExists)
+            {
+                return;
+            }
+
+            if (!hasStatusColumn)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "ALTER TABLE \"users\" ADD COLUMN \"status\" TEXT NOT NULL DEFAULT 'active';";
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            using (var updateCmd = conn.CreateCommand())
+            {
+                updateCmd.CommandText = "UPDATE \"users\" SET \"status\" = 'active' WHERE \"status\" IS NULL OR \"status\" = '';";
+                await updateCmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        public async Task<IEnumerable<Userman>> GetPendingStaffAsync()
+        {
+            return await ExecuteReaderToListAsync(
+                "SELECT * FROM \"users\" WHERE \"status\" = 'pending' ORDER BY \"id\" DESC",
+                MapReaderToUserman);
+        }
+
+        public async Task<int> CountActiveAdminsAsync()
+        {
+            var result = await ExecuteScalarAsync<object>(
+                "SELECT COUNT(*) FROM \"users\" WHERE \"role_id\" = 1 AND \"status\" = 'active'");
+            return Convert.ToInt32(result);
         }
     }
 }

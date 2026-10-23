@@ -13,5 +13,10 @@ namespace ClothesShopping.Api.OrdersModule
         Task<int> AddAsync(Order entity);
         Task UpdateAsync(Order entity);
         Task DeleteAsync(int id);
+        Task<int> CreateOrderTransactionalAsync(
+            int userId,
+            double total,
+            IReadOnlyList<(int ProductId, int Quantity, double Price)> items,
+            int cartId);
     }
 }

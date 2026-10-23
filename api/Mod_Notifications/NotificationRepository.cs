@@ -49,11 +49,7 @@ namespace ClothesShopping.Api.NotificationsModule
         public async Task<PaginationModel<Notification>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"notifications\"", MapRow);
-                return new PaginationModel<Notification> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"notifications\" ORDER BY \"notification_id\" LIMIT @pageSize OFFSET @offset",

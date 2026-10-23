@@ -2,21 +2,57 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../lib/context';
-import { Shield, User, ArrowRight, KeyRound, Mail, Sparkles } from 'lucide-react';
+import { Shield, User, ArrowRight, KeyRound, Mail, Check, ShoppingBag } from 'lucide-react';
 
-export default function LoginScreen() {
-  const { navigateTo, login, register, showToast } = useApp();
+export default function LoginScreen({ initialIsRegister = false }) {
+  const { navigateTo, login, register, staffRegister, showToast, redirectAfterLogin, setRedirectAfterLogin } = useApp();
   
-  const [isRegister, setIsRegister] = useState(false);
+  const [isRegister, setIsRegister] = useState(initialIsRegister);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [roleId, setRoleId] = useState(3); // 3 = customer, 1 = admin
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [forgotModal, setForgotModal] = useState(false);
   const [forgotUser, setForgotUser] = useState('');
   const [resetMessage, setResetMessage] = useState('');
+  
+  // Collapsed staff invite code
+  const [hasInviteCode, setHasInviteCode] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
+  const [staffSuccessMessage, setStaffSuccessMessage] = useState('');
+
+  const handleAuthSuccess = (loggedUser) => {
+    const roleId = loggedUser?.roleId;
+    // Role 1 (Admin) or 2 (Staff) -> go to Admin Dashboard
+    if (roleId === 1 || roleId === 2) {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.href = '/admin';
+      } else {
+        navigateTo('admin');
+      }
+      return;
+    }
+
+    // Role 3 (Customer) -> go to redirectAfterLogin or store home
+    if (redirectAfterLogin) {
+      const destination = redirectAfterLogin;
+      setRedirectAfterLogin(null);
+      if (typeof destination === 'string') {
+        navigateTo(destination);
+      } else if (destination.screen) {
+        navigateTo(destination.screen, destination.params || {});
+      } else {
+        navigateTo('checkout');
+      }
+    } else {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.href = '/';
+      } else {
+        navigateTo('home');
+      }
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,33 +61,42 @@ export default function LoginScreen() {
       return;
     }
 
+    setStaffSuccessMessage('');
     setLoading(true);
     try {
       if (isRegister) {
-        const res = await register(username.trim(), email.trim() || `${username}@styleshop.com`, password, roleId);
-        if (res.success) {
-          navigateTo('home');
+        if (hasInviteCode) {
+          if (!inviteCode.trim()) {
+            showToast("Please enter your staff invite code.", "error");
+            return;
+          }
+          const res = await staffRegister(
+            username.trim(),
+            email.trim() || `${username.trim()}@styleshop.com`,
+            password,
+            inviteCode.trim()
+          );
+          if (res.success) {
+            setStaffSuccessMessage("Request received. An admin must approve your account.");
+            setUsername('');
+            setEmail('');
+            setPassword('');
+            setInviteCode('');
+          }
+        } else {
+          const res = await register(username.trim(), email.trim() || `${username}@styleshop.com`, password);
+          if (res.success) {
+            handleAuthSuccess(res.user);
+          }
         }
       } else {
         const res = await login(username.trim(), password);
         if (res.success) {
-          navigateTo('home');
+          handleAuthSuccess(res.user);
         }
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fillDemo = (demoType) => {
-    if (demoType === 'admin') {
-      setUsername('admin');
-      setPassword('Password123!');
-      setIsRegister(false);
-    } else {
-      setUsername('customer');
-      setPassword('Password123!');
-      setIsRegister(false);
     }
   };
 
@@ -68,36 +113,26 @@ export default function LoginScreen() {
             <span className="text-lg font-black tracking-widest uppercase">STYLESHOP</span>
           </button>
           <p className="text-sm text-gray-500 font-medium">
-            {isRegister ? "Create your new shopping account" : "Sign in to your account"}
+            {isRegister ? "Create your account" : "Sign in to your account"}
           </p>
         </div>
 
         {/* Auth Card */}
         <div className="bg-white border border-gray-200 rounded-xl shadow-xs p-7 sm:p-8">
           
-          {/* Quick Demo Credentials Banner */}
-          <div className="mb-6 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs">
-            <p className="font-semibold text-gray-700 flex items-center gap-1.5 mb-1.5">
-              <Sparkles size={13} className="text-indigo-600" />
-              <span>Quick Demo Fill (Pre-seeded in DB):</span>
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => fillDemo('admin')}
-                className="flex-1 py-1.5 px-2 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-800 font-medium text-center transition"
-              >
-                👑 Admin Demo
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo('customer')}
-                className="flex-1 py-1.5 px-2 bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-800 font-medium text-center transition"
-              >
-                👤 Customer Demo
-              </button>
+          {(redirectAfterLogin === 'checkout' || redirectAfterLogin?.screen === 'checkout') && (
+            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2.5">
+              <ShoppingBag size={16} className="text-amber-600 flex-shrink-0" />
+              <span className="font-medium">Log in to complete your order. Your cart is saved.</span>
             </div>
-          </div>
+          )}
+
+          {staffSuccessMessage && (
+            <div className="mb-5 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center gap-2.5">
+              <Check size={16} className="text-emerald-600 flex-shrink-0" />
+              <span className="font-medium">{staffSuccessMessage}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             
@@ -109,7 +144,7 @@ export default function LoginScreen() {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. admin or customer"
+                placeholder="Enter your username"
                 className="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition"
               />
             </div>
@@ -141,19 +176,37 @@ export default function LoginScreen() {
               />
             </div>
 
-            {/* Role picker if registering */}
+            {/* Collapsed Staff Invite Code Option (Register only) */}
             {isRegister && (
-              <div className="space-y-1 animate-in fade-in duration-200">
-                <label className="text-xs font-semibold text-gray-700">Account Role</label>
-                <select
-                  value={roleId}
-                  onChange={(e) => setRoleId(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-lg text-gray-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                >
-                  <option value={3}>Shopper / Customer (Default)</option>
-                  <option value={1}>Store Administrator (Admin Panel Access)</option>
-                  <option value={2}>Store Staff</option>
-                </select>
+              <div className="pt-1">
+                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hasInviteCode}
+                    onChange={(e) => {
+                      setHasInviteCode(e.target.checked);
+                      setStaffSuccessMessage('');
+                    }}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 w-3.5 h-3.5"
+                  />
+                  <span>I have a staff invite code</span>
+                </label>
+                {hasInviteCode && (
+                  <div className="mt-2.5 space-y-1 animate-in fade-in duration-200">
+                    <label className="text-xs font-semibold text-gray-700">Organization Invite Code</label>
+                    <input
+                      type="text"
+                      required={hasInviteCode}
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value)}
+                      placeholder="Enter staff invite code"
+                      className="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition"
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      Staff accounts require approval from an administrator before login.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

@@ -79,7 +79,6 @@ public sealed class ApiAuthTests
         {
             Username = "demo",
             Password = "Password123!",
-            RoleId = 1,
         };
 
         IActionResult result = await controller.Register(request);
@@ -111,6 +110,9 @@ internal sealed class StubAuthRepository : IUsermanRepository
     public Task<IEnumerable<Userman>> SearchAsyncAll(string query) => Task.FromResult<IEnumerable<Userman>>([]);
     public Task<PaginationModel<Userman>> GetPaginatedAsync(int pageNumber, int pageSize) => Task.FromResult(new PaginationModel<Userman>());
     public Task BulkUploadAsync(List<Userman> dataList) => Task.CompletedTask;
+    public Task EnsureDatabaseMigratedAsync() => Task.CompletedTask;
+    public Task<IEnumerable<Userman>> GetPendingStaffAsync() => Task.FromResult<IEnumerable<Userman>>([]);
+    public Task<int> CountActiveAdminsAsync() => Task.FromResult(1);
 }
 
 internal sealed class StubJwtTokenService : IJwtTokenService

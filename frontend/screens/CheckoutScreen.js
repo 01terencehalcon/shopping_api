@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../lib/context';
-import { api } from '../lib/api';
+import { api, resolveImageUrl } from '../lib/api';
 import StoreHeader from '../components/StoreHeader';
 import Footer from '../components/Footer';
 import {
@@ -25,6 +25,9 @@ export default function CheckoutScreen() {
     total,
     clearCart,
     user,
+    isLoggedIn,
+    isAuthLoading,
+    setRedirectAfterLogin,
     navigateTo,
     showToast
   } = useApp();
@@ -33,17 +36,25 @@ export default function CheckoutScreen() {
   const [placedOrderId, setPlacedOrderId] = useState(null);
   const [placing, setPlacing] = useState(false);
 
+  useEffect(() => {
+    if (!isAuthLoading && !isLoggedIn) {
+      setRedirectAfterLogin('checkout');
+      showToast("Please log in to continue", "info");
+      navigateTo('login');
+    }
+  }, [isLoggedIn, isAuthLoading, setRedirectAfterLogin, showToast, navigateTo]);
+
   // Form fields
   const [formData, setFormData] = useState({
     firstName: user?.username ? user.username.split(' ')[0] : 'Jane',
     lastName: 'Smith',
     email: user?.email || 'jane.smith@example.com',
     phone: '+1 555 019 2831',
-    street: '123 Fashion Blvd, Suite 400',
-    city: 'New York',
-    province: 'NY',
-    postalCode: '10001',
-    country: 'United States',
+    street: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    country: '',
   });
 
   const [cardData, setCardData] = useState({
@@ -108,6 +119,10 @@ export default function CheckoutScreen() {
       setPlacing(false);
     }
   };
+
+  if (isAuthLoading || !isLoggedIn) {
+    return null;
+  }
 
   // ─── Order Placed Success Screen ───────────────────────────────────────────
   if (placedOrderId) {
@@ -269,9 +284,10 @@ export default function CheckoutScreen() {
                       type="text"
                       name="street"
                       required
+                      placeholder="e.g. 123 Main St, Apt 4"
                       value={formData.street}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
                     />
                   </div>
 
@@ -281,9 +297,10 @@ export default function CheckoutScreen() {
                       type="text"
                       name="city"
                       required
+                      placeholder="e.g. New York"
                       value={formData.city}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
                     />
                   </div>
 
@@ -293,9 +310,10 @@ export default function CheckoutScreen() {
                       type="text"
                       name="province"
                       required
+                      placeholder="e.g. NY"
                       value={formData.province}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
                     />
                   </div>
 
@@ -305,9 +323,10 @@ export default function CheckoutScreen() {
                       type="text"
                       name="postalCode"
                       required
+                      placeholder="e.g. 10001"
                       value={formData.postalCode}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
                     />
                   </div>
 
@@ -317,9 +336,10 @@ export default function CheckoutScreen() {
                       type="text"
                       name="country"
                       required
+                      placeholder="e.g. United States"
                       value={formData.country}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
                     />
                   </div>
                 </div>
@@ -424,14 +444,14 @@ export default function CheckoutScreen() {
                   {cartItems.map((item) => (
                     <div key={`${item.id}-${item.size}`} className="pt-2 first:pt-0 flex items-center justify-between gap-3 text-xs">
                       <div className="flex items-center gap-2 truncate">
-                        <img src={item.image} alt={item.name} className="w-9 h-11 object-cover rounded bg-gray-100 flex-shrink-0" />
+                        <img src={resolveImageUrl(item.image)} alt={item.name} className="w-9 h-11 object-cover rounded bg-gray-100 flex-shrink-0" />
                         <div className="truncate">
                           <p className="font-semibold text-gray-800 truncate">{item.name}</p>
                           <p className="text-[10px] text-gray-400">Qty: {item.quantity} · Size: {item.size}</p>
                         </div>
                       </div>
                       <span className="font-bold text-gray-800 flex-shrink-0">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        ₱{(item.price * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   ))}
@@ -440,23 +460,23 @@ export default function CheckoutScreen() {
                 <div className="border-t border-gray-200 pt-3 space-y-2 text-xs">
                   <div className="flex justify-between text-gray-600">
                     <span>Subtotal</span>
-                    <span className="font-semibold text-gray-900">${subtotal.toFixed(2)}</span>
+                    <span className="font-semibold text-gray-900">₱{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Shipping</span>
                     <span className="font-semibold text-gray-900">
-                      {shippingFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `$${shippingFee.toFixed(2)}`}
+                      {shippingFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `₱${shippingFee.toFixed(2)}`}
                     </span>
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-emerald-600 font-semibold">
                       <span>Discount</span>
-                      <span>-${discountAmount.toFixed(2)}</span>
+                      <span>-₱{discountAmount.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="border-t border-gray-200 pt-2 flex justify-between items-center text-sm font-black text-gray-900">
                     <span>Grand Total</span>
-                    <span className="text-lg">${total.toFixed(2)}</span>
+                    <span className="text-lg">₱{total.toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -469,7 +489,7 @@ export default function CheckoutScreen() {
                     <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                   ) : (
                     <>
-                      <span>Place Order (${total.toFixed(2)})</span>
+                      <span>Place Order (₱{total.toFixed(2)})</span>
                       <ArrowRight size={14} />
                     </>
                   )}

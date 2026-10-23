@@ -18,11 +18,12 @@ import {
   Package,
   Calendar,
   Eye,
-  X
+  X,
+  MapPin
 } from 'lucide-react';
 
 export default function ProfileScreen() {
-  const { user, logout, navigateTo, showToast } = useApp();
+  const { user, isLoggedIn, isAuthLoading, logout, navigateTo, showToast } = useApp();
 
   const [activeTab, setActiveTab] = useState('profile');
   const [orders, setOrders] = useState([]);
@@ -30,6 +31,12 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthLoading && !isLoggedIn) {
+      navigateTo('login');
+    }
+  }, [isLoggedIn, isAuthLoading, navigateTo]);
 
   // Edit profile state
   const [editModal, setEditModal] = useState(false);
@@ -55,8 +62,9 @@ export default function ProfileScreen() {
 
   // Load orders & addresses
   useEffect(() => {
+    if (!isLoggedIn || !user) return;
     let mounted = true;
-    const userId = user?.userId || 3;
+    const userId = user.userId;
 
     async function loadData() {
       setLoadingOrders(true);
@@ -137,6 +145,10 @@ export default function ProfileScreen() {
     }
   };
 
+  if (isAuthLoading || !isLoggedIn) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <StoreHeader />
@@ -208,7 +220,7 @@ export default function ProfileScreen() {
                     <p className="text-lg font-bold text-gray-900">{profileName}</p>
                     <p className="text-xs text-gray-500">{profileEmail}</p>
                     <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-800 border border-gray-200">
-                      {user?.roleId === 1 ? 'Administrator' : 'Premium Member'}
+                      {user?.roleId === 1 ? '👑 Administrator' : user?.roleId === 2 ? '🛡️ Staff Member' : 'Verified Customer'}
                     </span>
                   </div>
                 </div>
@@ -272,7 +284,7 @@ export default function ProfileScreen() {
                             {o.orderDate ? new Date(o.orderDate).toLocaleDateString() : 'Jul 12, 2025'}
                           </td>
                           <td className="px-4 py-3.5 font-bold text-gray-900">
-                            ${Number(o.total).toFixed(2)}
+                            ₱{Number(o.total).toFixed(2)}
                           </td>
                           <td className="px-4 py-3.5">
                             <span
@@ -289,12 +301,19 @@ export default function ProfileScreen() {
                               {o.status || 'Processing'}
                             </span>
                           </td>
-                          <td className="px-4 py-3.5 text-right">
+                          <td className="px-4 py-3.5 text-right space-x-2">
                             <button
                               onClick={() => viewOrderDetails(o)}
                               className="px-2.5 py-1 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition cursor-pointer"
                             >
                               View
+                            </button>
+                            <button
+                              onClick={() => navigateTo('tracking', { orderId: o.id })}
+                              className="px-2.5 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded transition cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <MapPin size={11} />
+                              <span>Track</span>
                             </button>
                           </td>
                         </tr>
@@ -505,7 +524,7 @@ export default function ProfileScreen() {
                       <p className="font-semibold text-gray-800">Product #{item.productId}</p>
                       <p className="text-gray-500">Qty: {item.quantity}</p>
                     </div>
-                    <span className="font-bold text-gray-900">${(item.price * item.quantity).toFixed(2)}</span>
+                    <span className="font-bold text-gray-900">₱{(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
@@ -513,8 +532,20 @@ export default function ProfileScreen() {
 
             <div className="flex justify-between items-center pt-3 border-t border-gray-100 text-xs font-bold text-gray-900">
               <span>Order Total</span>
-              <span>${Number(selectedOrder.total).toFixed(2)}</span>
+              <span>₱{Number(selectedOrder.total).toFixed(2)}</span>
             </div>
+
+            <button
+              onClick={() => {
+                const id = selectedOrder.id;
+                setSelectedOrder(null);
+                navigateTo('tracking', { orderId: id });
+              }}
+              className="w-full mt-2 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition shadow-xs cursor-pointer"
+            >
+              <MapPin size={14} />
+              <span>Track Package on Live Map</span>
+            </button>
           </div>
         </div>
       )}

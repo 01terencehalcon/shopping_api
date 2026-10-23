@@ -31,7 +31,7 @@ namespace ClothesShopping.Api.PaymentsModule
             return results;
         }
 
-        public override string ToString() => $"Payment[PaymentId={PaymentId}, OrderId={OrderId}, Amount={Amount}, Status={PaymentStatus}]";
+        public override string ToString() => $"Payment[PaymentId={PaymentId}, OrderId={OrderId}, Amount={Amount}, Status={PaymentStatus}, CouponId={CouponId}]";
 
         public bool Equals(Payment? other)
         {

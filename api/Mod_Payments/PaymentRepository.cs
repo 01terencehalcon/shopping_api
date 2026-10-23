@@ -51,11 +51,7 @@ namespace ClothesShopping.Api.PaymentsModule
         public async Task<PaginationModel<Payment>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"payments\"", MapRow);
-                return new PaginationModel<Payment> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"payments\" ORDER BY \"payment_id\" LIMIT @pageSize OFFSET @offset",

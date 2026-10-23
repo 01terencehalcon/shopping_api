@@ -14,15 +14,17 @@ namespace ClothesShopping.Api.UsermanModule
         private string? _email;
         private string? _userPass;
         private int? _userRoleId;
+        private string? _status;
 
         public Userman() { }
 
-        public Userman(string userName, string userPass, int userRoleId, string email = "")
+        public Userman(string userName, string userPass, int userRoleId, string email = "", string status = "active")
         {
             this.UserName = userName;
             this.UserPass = userPass;
             this.UserRoleId = userRoleId;
             this.Email = email;
+            this.Status = status;
         }
 
         /// <summary>
@@ -93,6 +95,24 @@ namespace ClothesShopping.Api.UsermanModule
         }
 
         /// <summary>
+        /// Gets or sets the Status (active, pending, rejected).
+        /// Default is "active".
+        /// </summary>
+        public string Status
+        {
+            get => string.IsNullOrWhiteSpace(_status) ? "active" : _status;
+            set
+            {
+                var val = value?.Trim().ToLowerInvariant() ?? "active";
+                if (val != "active" && val != "pending" && val != "rejected")
+                {
+                    val = "active";
+                }
+                _status = val;
+            }
+        }
+
+        /// <summary>
         /// Validate using DataAnnotations and semantic rules; returns errors (empty list means valid).
         /// </summary>
         public IReadOnlyList<ValidationResult> Validate()
@@ -109,7 +129,8 @@ namespace ClothesShopping.Api.UsermanModule
             "UserName=" + UserName,
             "Email=" + Email,
             "UserPass=" + UserPass,
-            "UserRoleId=" + UserRoleId
+            "UserRoleId=" + UserRoleId,
+            "Status=" + Status
         }) + "]";
 
         public bool Equals(Userman? other)

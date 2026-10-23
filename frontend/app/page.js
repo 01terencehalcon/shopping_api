@@ -12,15 +12,20 @@ import CheckoutScreen from '../screens/CheckoutScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AdminDashboard from '../screens/AdminDashboard';
 import ProductManagement from '../screens/ProductManagement';
+import TrackingScreen from '../screens/TrackingScreen';
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
-function ScreenRenderer() {
+export function ScreenRenderer({ initialRegister = false }) {
   const { screen, toast } = useApp();
 
   const renderCurrentScreen = () => {
     switch (screen) {
       case 'login':
-        return <LoginScreen />;
+      case 'staff-login':
+        return <LoginScreen initialIsRegister={initialRegister} />;
+      case 'register':
+      case 'staff-register':
+        return <LoginScreen initialIsRegister={true} />;
       case 'home':
         return <HomeScreen />;
       case 'listing':
@@ -33,6 +38,8 @@ function ScreenRenderer() {
         return <CheckoutScreen />;
       case 'profile':
         return <ProfileScreen />;
+      case 'tracking':
+        return <TrackingScreen />;
       case 'admin':
       case 'admin-orders':
       case 'admin-customers':

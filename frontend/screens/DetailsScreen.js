@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../lib/context';
-import { api, FALLBACK_PRODUCTS } from '../lib/api';
+import { api, FALLBACK_PRODUCTS, resolveImageUrl } from '../lib/api';
 import StoreHeader from '../components/StoreHeader';
 import Footer from '../components/Footer';
 import {
@@ -28,9 +28,10 @@ const COLORS = [
 ];
 
 export default function DetailsScreen() {
-  const { selectedProductId, navigateTo, addToCart, user, showToast } = useApp();
+  const { selectedProductId, navigateTo, addToCart, user, isLoggedIn, setRedirectAfterLogin, showToast } = useApp();
 
   const [product, setProduct] = useState(FALLBACK_PRODUCTS[0]);
+  const [productImages, setProductImages] = useState([]);
   const [related, setRelated] = useState(FALLBACK_PRODUCTS.slice(1, 5));
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +57,13 @@ export default function DetailsScreen() {
         const p = await api.products.getById(id);
         if (mounted && p) {
           setProduct(p);
+        }
+
+        // Fetch product images from database
+        const imgs = await api.productImages.getByProductId(id);
+        if (mounted) {
+          setProductImages(Array.isArray(imgs) ? imgs : []);
+          setActiveThumb(0);
         }
 
         // Fetch reviews
@@ -96,24 +104,34 @@ export default function DetailsScreen() {
     try {
       const res = await api.reviews.create({
         productId: product.id,
-        userId: user?.userId || 2,
         rating: newRating,
         comment: newComment.trim(),
       });
 
-      // Add to local review state
-      const createdReview = {
-        reviewId: Date.now(),
-        productId: product.id,
-        userId: user?.userId || 2,
-        rating: newRating,
-        comment: newComment.trim(),
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      setReviews([createdReview, ...reviews]);
-      setNewComment('');
-      setShowReviewForm(false);
-      showToast("Thank you! Your review has been submitted.");
+      if (res?.success) {
+        showToast("Thank you! Your review has been submitted.");
+        setNewComment('');
+        setShowReviewForm(false);
+
+        // Fetch fresh reviews from backend to ensure state consistency and avoid key collisions
+        const freshRevs = await api.reviews.getByProduct(product.id);
+        if (Array.isArray(freshRevs)) {
+          setReviews(freshRevs);
+        } else {
+          const newId = res?.data?.reviewId || Date.now();
+          const createdReview = {
+            reviewId: newId,
+            productId: product.id,
+            userId: user?.userId || 1,
+            rating: newRating,
+            comment: newComment.trim(),
+            reviewDate: new Date().toISOString().split('T')[0],
+          };
+          setReviews(prev => [createdReview, ...prev.filter(r => r.reviewId !== newId)]);
+        }
+      } else {
+        showToast(res?.error || "Failed to submit review", "error");
+      }
     } catch (err) {
       showToast("Failed to submit review", "error");
     } finally {
@@ -121,13 +139,12 @@ export default function DetailsScreen() {
     }
   };
 
-  // Multiple preview angles
-  const galleryImages = [
-    product.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80",
-    "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=800&q=80",
-    "https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&w=800&q=80",
-    "https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?auto=format&fit=crop&w=800&q=80",
-  ];
+  // Multiple pictures for this product (from database / uploads, fallback to product.image)
+  const galleryImages = (productImages && productImages.length > 0)
+    ? productImages.map(img => resolveImageUrl(img.imageUrl))
+    : [resolveImageUrl(product?.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80"];
+
+  const currentDisplayImage = galleryImages[activeThumb] || galleryImages[0];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -160,24 +177,26 @@ export default function DetailsScreen() {
           <div className="flex flex-col-reverse sm:flex-row gap-4">
             
             {/* Thumbnails */}
-            <div className="flex sm:flex-col gap-2.5 overflow-x-auto sm:overflow-visible">
-              {galleryImages.map((imgUrl, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setActiveThumb(idx)}
-                  className={`w-16 h-16 sm:w-18 sm:h-18 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 cursor-pointer ${
-                    activeThumb === idx ? 'border-gray-900 ring-2 ring-gray-300' : 'border-gray-200 opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  <img src={imgUrl} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
+            {galleryImages.length > 1 && (
+              <div className="flex sm:flex-col gap-2.5 overflow-x-auto sm:overflow-visible">
+                {galleryImages.map((imgUrl, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveThumb(idx)}
+                    className={`w-16 h-16 sm:w-18 sm:h-18 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 cursor-pointer ${
+                      activeThumb === idx ? 'border-gray-900 ring-2 ring-gray-300' : 'border-gray-200 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={imgUrl} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Main Stage Image */}
             <div className="flex-1 bg-gray-100 rounded-xl overflow-hidden border border-gray-200 aspect-3/4 max-h-[500px] relative group">
               <img
-                src={galleryImages[activeThumb]}
+                src={currentDisplayImage}
                 alt={product.name}
                 className="w-full h-full object-cover group-hover:scale-103 transition duration-500"
               />
@@ -202,12 +221,12 @@ export default function DetailsScreen() {
                 
                 <div className="flex items-center gap-3 mt-2">
                   <p className="text-2xl font-black text-gray-900">
-                    ${Number(product.price).toFixed(2)}
+                    ₱{Number(product.price).toFixed(2)}
                   </p>
                   <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs font-semibold text-amber-900">
                     <Star size={13} className="fill-amber-400 text-amber-500" />
                     <span>4.8</span>
-                    <span className="text-amber-700/70">({reviews.length || 12} reviews)</span>
+                    <span className="text-amber-700/70">({reviews.length} {reviews.length === 1 ? 'review' : 'reviews'})</span>
                   </div>
                 </div>
               </div>
@@ -325,7 +344,7 @@ export default function DetailsScreen() {
               <div className="border border-gray-200 rounded-xl p-3.5 bg-gray-50/80 grid grid-cols-3 gap-2 text-center text-xs text-gray-600">
                 <div className="flex flex-col items-center gap-1">
                   <RotateCcw size={16} className="text-gray-700" />
-                  <span className="font-medium">Free 30-Day Returns</span>
+                  <span className="font-medium">Free 7-Day Returns</span>
                 </div>
                 <div className="flex flex-col items-center gap-1 border-x border-gray-200 px-1">
                   <Truck size={16} className="text-gray-700" />
@@ -351,17 +370,33 @@ export default function DetailsScreen() {
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">Verified shoppers who purchased this item</p>
             </div>
-            <button
-              onClick={() => setShowReviewForm(!showReviewForm)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold transition cursor-pointer"
-            >
-              <MessageSquarePlus size={14} />
-              <span>{showReviewForm ? "Cancel Review" : "Write a Review"}</span>
-            </button>
+            {isLoggedIn ? (
+              <button
+                onClick={() => setShowReviewForm(!showReviewForm)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold transition cursor-pointer"
+              >
+                <MessageSquarePlus size={14} />
+                <span>{showReviewForm ? "Cancel Review" : "Write a Review"}</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs text-gray-500 font-medium">Log in to leave a comment</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRedirectAfterLogin({ screen: 'details', params: { productId: product.id } });
+                    navigateTo('login');
+                  }}
+                  className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  Log In
+                </button>
+              </div>
+            )}
           </div>
 
           {/* New Review Form */}
-          {showReviewForm && (
+          {isLoggedIn && showReviewForm && (
             <form onSubmit={handleAddReview} className="mb-8 p-5 bg-gray-50 rounded-xl border border-gray-200 space-y-4 animate-in fade-in">
               <p className="text-xs font-bold text-gray-800 uppercase tracking-wider">Leave Your Review</p>
               
@@ -407,29 +442,35 @@ export default function DetailsScreen() {
 
           {/* Review List */}
           <div className="space-y-4">
-            {reviews.map((rev) => (
-              <div key={rev.reviewId} className="border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold">
-                      U{rev.userId}
+            {reviews.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">
+                No reviews yet for this product. Be the first to share your thoughts!
+              </p>
+            ) : (
+              reviews.map((rev, idx) => (
+                <div key={`rev-${rev.reviewId ?? 'idx'}-${idx}`} className="border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold">
+                        U{rev.userId}
+                      </div>
+                      <span className="text-xs font-bold text-gray-800">Shopper #{rev.userId}</span>
                     </div>
-                    <span className="text-xs font-bold text-gray-800">Shopper #{rev.userId}</span>
+                    <span className="text-[11px] text-gray-400">{rev.reviewDate || rev.createdAt || 'Recent'}</span>
                   </div>
-                  <span className="text-[11px] text-gray-400">{rev.createdAt || 'Recent'}</span>
+                  <div className="flex items-center gap-1 mb-1.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        size={12}
+                        className={s <= (rev.rating || 5) ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">{rev.comment}</p>
                 </div>
-                <div className="flex items-center gap-1 mb-1.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star
-                      key={s}
-                      size={12}
-                      className={s <= (rev.rating || 5) ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}
-                    />
-                  ))}
-                </div>
-                <p className="text-xs text-gray-600 leading-relaxed">{rev.comment}</p>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
 
@@ -451,14 +492,14 @@ export default function DetailsScreen() {
               >
                 <div className="h-40 bg-gray-100 overflow-hidden relative">
                   <img
-                    src={p.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
+                    src={resolveImageUrl(p.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
                     alt={p.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                   />
                 </div>
                 <div className="p-3">
                   <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
-                  <p className="text-xs font-bold text-gray-600 mt-0.5">${Number(p.price).toFixed(2)}</p>
+                  <p className="text-xs font-bold text-gray-600 mt-0.5">₱{Number(p.price).toFixed(2)}</p>
                 </div>
               </div>
             ))}

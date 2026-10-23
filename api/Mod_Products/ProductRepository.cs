@@ -4,6 +4,7 @@ using System.Data.Common;
 using System.Linq;
 using System.Threading.Tasks;
 using ClothesShopping.Api.Main;
+using ClothesShopping.Api.DTOs;
 
 namespace ClothesShopping.Api.ProductsModule
 {
@@ -110,11 +111,7 @@ namespace ClothesShopping.Api.ProductsModule
         public async Task<PaginationModel<Product>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"products\"", MapRow);
-                return new PaginationModel<Product> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"products\" ORDER BY \"id\" LIMIT @pageSize OFFSET @offset",
@@ -166,6 +163,67 @@ namespace ClothesShopping.Api.ProductsModule
             if (dataList == null || dataList.Count == 0) return;
             foreach (var item in dataList)
                 await AddAsync(item);
+        }
+
+        private TopProductResponse MapTopRow(DbDataReader reader)
+        {
+            try
+            {
+                return new TopProductResponse
+                {
+                    Id            = ReadValue<int>(reader, "id", 0),
+                    Name          = ReadValue<string>(reader, "name", string.Empty),
+                    Category      = ReadValue<string>(reader, "category", string.Empty),
+                    Price         = ReadValue<double>(reader, "price", 0),
+                    Stock         = ReadValue<int>(reader, "stock", 0),
+                    Image         = ReadValue<string>(reader, "image", string.Empty),
+                    Description   = ReadValue<string>(reader, "description", string.Empty),
+                    SoldCount     = ReadValue<int>(reader, "soldCount", 0),
+                    AverageRating = Math.Round(ReadValue<double>(reader, "averageRating", 0), 1),
+                    ReviewCount   = ReadValue<int>(reader, "reviewCount", 0),
+                };
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to map database row to TopProductResponse.", ex);
+            }
+        }
+
+        public async Task<IEnumerable<TopProductResponse>> GetTopAsync(int count)
+        {
+            const string sql = @"
+                SELECT 
+                    p.""id"",
+                    p.""name"",
+                    p.""category"",
+                    p.""price"",
+                    p.""stock"",
+                    p.""image"",
+                    p.""description"",
+                    COALESCE(sales.soldCount, 0) AS soldCount,
+                    COALESCE(rev.avgRating, 0.0) AS averageRating,
+                    COALESCE(rev.reviewCount, 0) AS reviewCount
+                FROM ""products"" p
+                LEFT JOIN (
+                    SELECT oi.""product_id"", SUM(oi.""quantity"") AS soldCount
+                    FROM ""order_items"" oi
+                    INNER JOIN ""orders"" o ON o.""id"" = oi.""order_id""
+                    WHERE LOWER(o.""status"") != 'cancelled'
+                    GROUP BY oi.""product_id""
+                ) sales ON sales.""product_id"" = p.""id""
+                LEFT JOIN (
+                    SELECT r.""product_id"", AVG(r.""rating"") AS avgRating, COUNT(r.""review_id"") AS reviewCount
+                    FROM ""reviews"" r
+                    GROUP BY r.""product_id""
+                ) rev ON rev.""product_id"" = p.""id""
+                ORDER BY 
+                    CASE WHEN p.""stock"" > 0 THEN 0 ELSE 1 END ASC,
+                    soldCount DESC,
+                    averageRating DESC,
+                    p.""id"" DESC
+                LIMIT @count";
+
+            return await ExecuteReaderToListAsync(sql, MapTopRow, new[] { CreateParameter("count", count) });
         }
     }
 }

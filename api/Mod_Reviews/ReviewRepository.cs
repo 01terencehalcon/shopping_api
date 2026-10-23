@@ -55,11 +55,7 @@ namespace ClothesShopping.Api.ReviewsModule
         public async Task<PaginationModel<Review>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"reviews\"", MapRow);
-                return new PaginationModel<Review> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"reviews\" ORDER BY \"review_id\" LIMIT @pageSize OFFSET @offset",

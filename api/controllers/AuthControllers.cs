@@ -1,5 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using ClothesShopping.Api.DTOs;
 using ClothesShopping.Api.UsermanModule;
 using ClothesShopping.Api.Security;
@@ -13,6 +18,7 @@ namespace ClothesShopping.Api.Controllers
         private readonly IUsermanRepository _userRepository;
         private readonly IJwtTokenService _jwtTokenService;
         private readonly IWebHostEnvironment _environment;
+        private readonly IConfiguration? _configuration;
 
         private static string HashRawForSave(string rawPassword)
         {
@@ -24,11 +30,37 @@ namespace ClothesShopping.Api.Controllers
             return PasswordHasher.Hash(rawPassword);
         }
 
-        public AuthControllers(IUsermanRepository userRepository, IJwtTokenService jwtTokenService, IWebHostEnvironment environment)
+        private bool ValidateInviteCode(string? providedCode)
+        {
+            if (string.IsNullOrWhiteSpace(providedCode))
+                return false;
+
+            var configuredCode = _configuration?["Staff:InviteCode"]
+                ?? _configuration?["Staff__InviteCode"]
+                ?? Environment.GetEnvironmentVariable("Staff__InviteCode")
+                ?? Environment.GetEnvironmentVariable("Staff:InviteCode");
+
+            if (string.IsNullOrWhiteSpace(configuredCode))
+                return false;
+
+            byte[] providedBytes = Encoding.UTF8.GetBytes(providedCode.Trim());
+            byte[] configuredBytes = Encoding.UTF8.GetBytes(configuredCode.Trim());
+
+            return CryptographicOperations.FixedTimeEquals(providedBytes, configuredBytes);
+        }
+
+        [ActivatorUtilitiesConstructor]
+        public AuthControllers(IUsermanRepository userRepository, IJwtTokenService jwtTokenService, IWebHostEnvironment environment, IConfiguration configuration)
         {
             _userRepository = userRepository;
             _jwtTokenService = jwtTokenService;
             _environment = environment;
+            _configuration = configuration;
+        }
+
+        public AuthControllers(IUsermanRepository userRepository, IJwtTokenService jwtTokenService, IWebHostEnvironment environment)
+            : this(userRepository, jwtTokenService, environment, null!)
+        {
         }
 
         [HttpPost("register")]
@@ -40,23 +72,19 @@ namespace ClothesShopping.Api.Controllers
                 return BadRequest("Username and password are required.");
             }
 
-            if (dto.RoleId < 1 || dto.RoleId > 3)
-            {
-                return BadRequest("Invalid RoleId. Valid roles are: 1 (admin), 2 (staff), 3 (user).");
-            }
-
             var existingUser = await _userRepository.GetByUserNameAsync(dto.Username);
             if (existingUser != null)
             {
                 return Conflict("Username already exists.");
             }
 
+            // Always create customer role (3), ignoring any client input
             var user = new Userman
             {
                 UserName = dto.Username,
                 Email = dto.Email ?? string.Empty,
                 UserPass = HashRawForSave(dto.Password),
-                UserRoleId = dto.RoleId,
+                UserRoleId = 3,
             };
 
             await _userRepository.AddAsync(user);
@@ -96,7 +124,7 @@ namespace ClothesShopping.Api.Controllers
             }
 
             bool isValid = PasswordHasher.Verify(user.UserPass, dto.Password);
-            if (!isValid)
+            if (!isValid || (user.UserRoleId != 1 && user.UserRoleId != 2 && user.UserRoleId != 3) || !string.Equals(user.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
                 return Unauthorized("Invalid username or password.");
             }
@@ -110,6 +138,69 @@ namespace ClothesShopping.Api.Controllers
                 username = user.UserName,
                 email = user.Email,
                 roleId = user.UserRoleId,
+            });
+        }
+
+        [HttpPost("staff-login")]
+        public async Task<IActionResult> StaffLogin([FromBody] LoginRequest dto)
+        {
+            return await Login(dto);
+        }
+
+        [HttpPost("staff-register")]
+        public async Task<IActionResult> StaffRegister([FromBody] StaffRegisterRequest dto)
+        {
+            if (dto == null)
+            {
+                return BadRequest("Request body is required.");
+            }
+
+            // Check inviteCode against configured Staff__InviteCode in constant time
+            if (!ValidateInviteCode(dto.InviteCode))
+            {
+                return BadRequest("Invalid or expired staff invite code.");
+            }
+
+            // Validate username (3-50 chars)
+            if (string.IsNullOrWhiteSpace(dto.Username) || dto.Username.Trim().Length < 3 || dto.Username.Trim().Length > 50)
+            {
+                return BadRequest("Username must be between 3 and 50 characters.");
+            }
+
+            // Validate email format
+            if (string.IsNullOrWhiteSpace(dto.Email) || !new EmailAddressAttribute().IsValid(dto.Email.Trim()))
+            {
+                return BadRequest("A valid email address is required.");
+            }
+
+            // Validate password (at least 8 characters)
+            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 8)
+            {
+                return BadRequest("Password must be at least 8 characters.");
+            }
+
+            // Reject duplicate usernames
+            var existingUser = await _userRepository.GetByUserNameAsync(dto.Username.Trim());
+            if (existingUser != null)
+            {
+                return Conflict("Username already exists.");
+            }
+
+            // Always create role 2 (Staff) and status "pending". Never create admins here.
+            var user = new Userman
+            {
+                UserName = dto.Username.Trim(),
+                Email = dto.Email.Trim(),
+                UserPass = HashRawForSave(dto.Password),
+                UserRoleId = 2,
+                Status = "pending",
+            };
+
+            await _userRepository.AddAsync(user);
+
+            return Ok(new
+            {
+                message = "Request received. An admin must approve your account."
             });
         }
 

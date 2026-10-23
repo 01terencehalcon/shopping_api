@@ -18,6 +18,12 @@ namespace ClothesShopping.Api.DTOs
         public string? ImageUrl { get; set; }
     }
 
+    public class SetMainImageRequest
+    {
+        [Required]
+        public int ImageId { get; set; }
+    }
+
     public class CreateInventoryLogRequest
     {
         [Required]

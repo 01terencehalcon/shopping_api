@@ -1,5 +1,12 @@
 // API Service for Clothes Shopping System
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:43205';
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:43205';
+
+export function resolveImageUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/')) return `${API_BASE}${url}`;
+  return `${API_BASE}/${url}`;
+}
 
 // Default mock products matching database seed data
 export const FALLBACK_PRODUCTS = [
@@ -129,8 +136,9 @@ export function clearAuth() {
 // Core HTTP request wrapper
 async function request(endpoint, options = {}) {
   const token = getToken();
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
@@ -192,10 +200,18 @@ export const api = {
       return res;
     },
 
-    async register(username, email, password, roleId = 3) {
+
+    async staffRegister(username, email, password, inviteCode) {
+      return await request('/api/auth/staff-register', {
+        method: 'POST',
+        body: JSON.stringify({ username, email, password, inviteCode }),
+      });
+    },
+
+    async register(username, email, password) {
       const res = await request('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ username, email, password, roleId }),
+        body: JSON.stringify({ username, email, password }),
       });
       if (res.success && res.data.token) {
         saveAuth({
@@ -230,6 +246,14 @@ export const api = {
 
   // Products
   products: {
+    async getTop(count = 8) {
+      const res = await request(`/api/Product/top?count=${encodeURIComponent(count)}`);
+      if (res.success && Array.isArray(res.data)) {
+        return { success: true, data: res.data };
+      }
+      return { success: false, error: res.error || 'Could not load products.', data: [] };
+    },
+
     async getAll() {
       const res = await request('/api/Product');
       if (res.success && Array.isArray(res.data) && res.data.length > 0) {
@@ -265,6 +289,21 @@ export const api = {
         p.category.toLowerCase().includes(q) ||
         (p.description && p.description.toLowerCase().includes(q))
       );
+    },
+
+    async uploadImage(file) {
+      const token = getToken();
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/api/Product/upload-image`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      const data = await res.json();
+      return data;
     },
 
     async create(product) {
@@ -381,6 +420,17 @@ export const api = {
       return await request(`/api/Order/${id}`, {
         method: 'DELETE',
       });
+    },
+
+    async getTracking(id) {
+      return await request(`/api/Order/${id}/tracking`);
+    },
+
+    async addTracking(id, data) {
+      return await request(`/api/Order/${id}/tracking`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
     }
   },
 
@@ -448,13 +498,13 @@ export const api = {
   reviews: {
     async getByProduct(productId) {
       const res = await request(`/api/Review/product/${productId}`);
-      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+      if (res.success && Array.isArray(res.data)) {
         return res.data;
       }
       return [
-        { reviewId: 1, productId, userId: 2, rating: 5, comment: "Exceptional quality fabric and true to size fit. Will definitely buy again!", createdAt: "2025-07-02" },
-        { reviewId: 2, productId, userId: 3, rating: 4, comment: "Very comfortable for everyday wear. Material feels premium.", createdAt: "2025-06-25" },
-        { reviewId: 3, productId, userId: 4, rating: 5, comment: "Arrived quickly and looked even better than in photos.", createdAt: "2025-06-12" }
+        { reviewId: 'fb-1', productId, userId: 2, rating: 5, comment: "Exceptional quality fabric and true to size fit. Will definitely buy again!", createdAt: "2025-07-02" },
+        { reviewId: 'fb-2', productId, userId: 3, rating: 4, comment: "Very comfortable for everyday wear. Material feels premium.", createdAt: "2025-06-25" },
+        { reviewId: 'fb-3', productId, userId: 4, rating: 5, comment: "Arrived quickly and looked even better than in photos.", createdAt: "2025-06-12" }
       ];
     },
 
@@ -496,6 +546,63 @@ export const api = {
         { userId: 2, userName: "admin", email: "admin@styleshop.com", userRoleId: 1 },
         { userId: 3, userName: "customer", email: "customer@styleshop.com", userRoleId: 3 }
       ];
+    },
+
+    async getPending() {
+      const res = await request('/api/Userman/pending');
+      if (res.success && Array.isArray(res.data)) {
+        return res.data;
+      }
+      return [];
+    },
+
+    async approve(id) {
+      return await request(`/api/Userman/${id}/approve`, {
+        method: 'POST',
+      });
+    },
+
+    async reject(id) {
+      return await request(`/api/Userman/${id}/reject`, {
+        method: 'POST',
+      });
+    }
+  },
+
+  // Product Images (Multiple Images per product)
+  productImages: {
+    async getByProductId(productId) {
+      const res = await request(`/api/product-images/product/${productId}`);
+      if (res.success && Array.isArray(res.data)) {
+        return res.data;
+      }
+      return [];
+    },
+
+    async upload(productId, files) {
+      const formData = new FormData();
+      formData.append('productId', productId);
+      const fileList = Array.isArray(files) ? files : [files];
+      for (const file of fileList) {
+        formData.append('files', file);
+      }
+      return await request('/api/product-images/upload', {
+        method: 'POST',
+        body: formData,
+      });
+    },
+
+    async setMain(productId, imageId) {
+      return await request(`/api/product-images/product/${productId}/main`, {
+        method: 'PUT',
+        body: JSON.stringify({ imageId }),
+      });
+    },
+
+    async delete(id) {
+      return await request(`/api/product-images/${id}`, {
+        method: 'DELETE',
+      });
     }
   }
 };

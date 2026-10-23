@@ -7,7 +7,11 @@ namespace ClothesShopping.Api.ReviewsModule
     public sealed class Review : IEquatable<Review>
     {
         private int? _reviewId;
+        private int? _userId;
+        private int? _productId;
         private int _rating;
+        private string? _comment;
+        private string? _reviewDate;
 
         public Review() { }
 
@@ -17,8 +21,16 @@ namespace ClothesShopping.Api.ReviewsModule
             set => _reviewId = value;
         }
 
-        public int UserId { get; set; }
-        public int ProductId { get; set; }
+        public int UserId 
+        {
+            get => _userId ?? 0;
+            set => _userId = value;
+        }
+        public int ProductId 
+        {
+            get => _productId ?? 0;
+            set => _productId = value;
+        }
 
         [Range(1, 5)]
         public int Rating
@@ -32,8 +44,16 @@ namespace ClothesShopping.Api.ReviewsModule
             }
         }
 
-        public string? Comment { get; set; }
-        public string ReviewDate { get; set; } = string.Empty;
+        public string? Comment 
+        {
+            get => _comment;
+            set => _comment = value;
+        }
+        public string ReviewDate 
+        {
+            get => _reviewDate ?? string.Empty;
+            set => _reviewDate = value;
+        }
 
         public IReadOnlyList<ValidationResult> Validate()
         {

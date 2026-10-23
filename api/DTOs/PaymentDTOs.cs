@@ -8,15 +8,9 @@ namespace ClothesShopping.Api.DTOs
         public int OrderId { get; set; }
 
         [Required]
-        [Range(0, double.MaxValue)]
-        public double Amount { get; set; }
-
-        [Required]
         public string PaymentMethod { get; set; } = string.Empty;
 
-        public string PaymentStatus { get; set; } = "pending";
-
-        public int CouponId { get; set; } = 0;
+        public int? CouponId { get; set; }
     }
 
     public class UpdatePaymentStatusRequest

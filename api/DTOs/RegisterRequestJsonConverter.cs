@@ -55,14 +55,16 @@ namespace ClothesShopping.Api.DTOs
                     continue;
                 }
 
-                if (propertyName.Equals("role_id", comparison) ||
-                    propertyName.Equals("roleId", comparison) ||
-                    propertyName.Equals("userRoleId", comparison))
+                if (propertyName.Equals("roleId", comparison) ||
+                    propertyName.Equals("role_id", comparison) ||
+                    propertyName.Equals("userRoleId", comparison) ||
+                    propertyName.Equals("user_role_id", comparison))
                 {
-                    dto.RoleId = ReadInt32(ref reader, options);
+                    reader.Skip();
                     continue;
                 }
 
+                // Silently ignore unknown properties
                 reader.Skip();
             }
 
@@ -75,7 +77,6 @@ namespace ClothesShopping.Api.DTOs
             writer.WriteString("username", value.Username);
             writer.WriteString("email", value.Email);
             writer.WriteString("password", value.Password);
-            writer.WriteNumber("role_id", value.RoleId);
             writer.WriteEndObject();
         }
 
@@ -87,21 +88,6 @@ namespace ClothesShopping.Api.DTOs
             }
 
             return JsonSerializer.Deserialize<string>(ref reader, options) ?? string.Empty;
-        }
-
-        private static int ReadInt32(ref Utf8JsonReader reader, JsonSerializerOptions options)
-        {
-            if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out var intValue))
-            {
-                return intValue;
-            }
-
-            if (reader.TokenType == JsonTokenType.String && int.TryParse(reader.GetString(), out var parsed))
-            {
-                return parsed;
-            }
-
-            return JsonSerializer.Deserialize<int>(ref reader, options);
         }
     }
 }

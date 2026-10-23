@@ -21,5 +21,8 @@ namespace ClothesShopping.Api.UsermanModule
         Task<IEnumerable<Userman>> SearchAsyncAll(string query);
         Task<PaginationModel<Userman>> GetPaginatedAsync(int pageNumber, int pageSize);
         Task BulkUploadAsync(List<Userman> dataList);
+        Task EnsureDatabaseMigratedAsync();
+        Task<IEnumerable<Userman>> GetPendingStaffAsync();
+        Task<int> CountActiveAdminsAsync();
     }
 }

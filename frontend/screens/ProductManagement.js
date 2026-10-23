@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../lib/context';
-import { api, FALLBACK_PRODUCTS } from '../lib/api';
+import { api, FALLBACK_PRODUCTS, resolveImageUrl } from '../lib/api';
 import {
   Package,
   Plus,
@@ -16,11 +16,16 @@ import {
   AlertTriangle,
   BarChart2,
   Store,
-  LogOut
+  LogOut,
+  Upload,
+  Image as ImageIcon,
+  Shield,
+  Star,
+  Check
 } from 'lucide-react';
 
 export default function ProductManagement() {
-  const { navigateTo, logout, showToast } = useApp();
+  const { navigateTo, logout, showToast, user, canManageProducts, isAuthLoading } = useApp();
 
   const [products, setProducts] = useState(FALLBACK_PRODUCTS);
   const [search, setSearch] = useState('');
@@ -35,10 +40,13 @@ export default function ProductManagement() {
     category: 'Tops',
     price: 39,
     stock: 50,
-    image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80',
+    image: '',
     description: '',
   });
   const [saving, setSaving] = useState(false);
+  const [productImages, setProductImages] = useState([]);
+  const [pendingFiles, setPendingFiles] = useState([]); // [{ file, previewUrl }]
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   // Delete confirm modal
   const [deleteId, setDeleteId] = useState(null);
@@ -54,6 +62,28 @@ export default function ProductManagement() {
       setLoading(false);
     }
   };
+
+  const loadProductImages = async (productId) => {
+    try {
+      const imgs = await api.productImages.getByProductId(productId);
+      setProductImages(Array.isArray(imgs) ? imgs : []);
+    } catch (err) {
+      console.warn("Product images load error:", err);
+      setProductImages([]);
+    }
+  };
+
+  // Redirect non-staff/admin users to /login
+  useEffect(() => {
+    if (!isAuthLoading) {
+      const isStaffOrAdmin = user && (user.roleId === 1 || user.roleId === 2 || user.role === 'Admin' || user.role === 'Staff');
+      if (!isStaffOrAdmin) {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+      }
+    }
+  }, [user, isAuthLoading]);
 
   useEffect(() => {
     fetchProducts();
@@ -73,15 +103,113 @@ export default function ProductManagement() {
       category: 'Tops',
       price: 39,
       stock: 50,
-      image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80',
+      image: '',
       description: 'Handcrafted garment tailored with premium fabrics.',
     });
+    setProductImages([]);
+    setPendingFiles([]);
     setModalMode('add');
   };
 
-  const handleOpenEdit = (p) => {
+  const handleOpenEdit = async (p) => {
     setCurrentProduct({ ...p });
+    setPendingFiles([]);
     setModalMode('edit');
+    await loadProductImages(p.id);
+  };
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    e.target.value = '';
+
+    const validFiles = [];
+    for (const file of files) {
+      if (file.size > 2 * 1024 * 1024) {
+        showToast(`File "${file.name}" exceeds the 2 MB limit`, "error");
+        continue;
+      }
+      const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+        showToast(`"${file.name}" is not a valid jpg, png, or webp image`, "error");
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) return;
+
+    if (modalMode === 'edit') {
+      if (productImages.length + validFiles.length > 6) {
+        showToast(`A product can have at most 6 images (currently ${productImages.length})`, "error");
+        return;
+      }
+
+      setUploadingImages(true);
+      try {
+        const res = await api.productImages.upload(currentProduct.id, validFiles);
+        if (res.success) {
+          showToast(`Uploaded ${validFiles.length} image(s)!`);
+          await loadProductImages(currentProduct.id);
+          await fetchProducts();
+        } else {
+          showToast(res.error || "Failed to upload images", "error");
+        }
+      } catch (err) {
+        showToast(err.message || "Upload failed", "error");
+      } finally {
+        setUploadingImages(false);
+      }
+    } else {
+      if (pendingFiles.length + validFiles.length > 6) {
+        showToast(`A product can have at most 6 images (currently ${pendingFiles.length})`, "error");
+        return;
+      }
+      const newPending = validFiles.map(file => ({
+        file,
+        previewUrl: URL.createObjectURL(file)
+      }));
+      setPendingFiles(prev => [...prev, ...newPending]);
+    }
+  };
+
+  const handleRemovePendingFile = (idx) => {
+    setPendingFiles(prev => {
+      const removed = prev[idx];
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const handleSetMainImage = async (imageId, imageUrl) => {
+    if (!currentProduct.id) return;
+    try {
+      const res = await api.productImages.setMain(currentProduct.id, imageId);
+      if (res.success) {
+        setCurrentProduct(prev => ({ ...prev, image: imageUrl }));
+        showToast("Set as main product image!");
+        await fetchProducts();
+      } else {
+        showToast(res.error || "Failed to set main image", "error");
+      }
+    } catch (err) {
+      showToast(err.message || "Failed to set main image", "error");
+    }
+  };
+
+  const handleDeleteImage = async (imageId) => {
+    try {
+      const res = await api.productImages.delete(imageId);
+      if (res.success) {
+        showToast("Image removed");
+        await loadProductImages(currentProduct.id);
+        await fetchProducts();
+      } else {
+        showToast(res.error || "Failed to delete image", "error");
+      }
+    } catch (err) {
+      showToast(err.message || "Failed to delete image", "error");
+    }
   };
 
   const handleSaveProduct = async (e) => {
@@ -94,10 +222,20 @@ export default function ProductManagement() {
           category: currentProduct.category,
           price: Number(currentProduct.price),
           stock: Number(currentProduct.stock),
-          image: currentProduct.image,
+          image: currentProduct.image || '',
           description: currentProduct.description,
         });
-        showToast("Product created successfully in the API!");
+
+        if (res.success) {
+          const newId = res.data?.id;
+          if (newId && pendingFiles.length > 0) {
+            const filesToUpload = pendingFiles.map(p => p.file);
+            await api.productImages.upload(newId, filesToUpload);
+          }
+          showToast("Product created successfully!");
+        } else {
+          showToast(res.error || "Failed to create product", "error");
+        }
       } else {
         await api.products.update(currentProduct.id, {
           name: currentProduct.name,
@@ -107,13 +245,12 @@ export default function ProductManagement() {
           image: currentProduct.image,
           description: currentProduct.description,
         });
-        showToast("Product updated successfully in the API!");
+        showToast("Product updated successfully!");
       }
       setModalMode(null);
       await fetchProducts();
-    } catch {
-      showToast("Updated in current view");
-      setModalMode(null);
+    } catch (err) {
+      showToast(err.message || "Failed to save product", "error");
     } finally {
       setSaving(false);
     }
@@ -133,6 +270,50 @@ export default function ProductManagement() {
     }
   };
 
+  if (!isAuthLoading && !canManageProducts) {
+    return (
+      <div className="min-h-[calc(100vh-40px)] bg-gray-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-gray-200 p-8 shadow-sm text-center animate-in fade-in zoom-in-95">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-5">
+            <Shield size={28} />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 tracking-tight">Staff & Admin Access Only</h2>
+          <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+            Product Catalog Management is restricted to verified <strong>Staff</strong> and <strong>Administrators</strong>. Customers cannot post, edit, or manage products.
+          </p>
+
+          <div className="my-6 p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600 flex items-center justify-between">
+            <span className="text-gray-400">Current Account:</span>
+            <span className="font-semibold text-gray-800">
+              {user ? (
+                <span>
+                  {user.roleId === 1 ? '👑 Administrator' : user.roleId === 2 ? '🛡️ Staff' : '👤 Customer'} ({user.username})
+                </span>
+              ) : (
+                'Not Signed In'
+              )}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <button
+              onClick={() => navigateTo('home')}
+              className="flex-1 px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
+            >
+              Back to Storefront
+            </button>
+            <button
+              onClick={() => navigateTo('login')}
+              className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold rounded-xl border border-gray-200 transition cursor-pointer"
+            >
+              Sign In as Staff / Admin
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-[calc(100vh-40px)] bg-gray-100">
       
@@ -140,7 +321,7 @@ export default function ProductManagement() {
       <aside className="w-56 bg-gray-900 min-h-full flex-shrink-0 flex flex-col text-neutral-300">
         <div className="px-5 py-5 border-b border-gray-800">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">STYLESHOP</p>
-          <p className="text-sm font-bold text-white mt-0.5">Admin Portal</p>
+          <p className="text-sm font-bold text-white mt-0.5">Staff & Admin Portal</p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -168,9 +349,15 @@ export default function ProductManagement() {
         </nav>
 
         <div className="p-3 border-t border-gray-800">
+          {user && (
+            <div className="px-3 py-2 text-[11px] text-gray-400 mb-1">
+              <span className="text-gray-500 block text-[10px] uppercase font-bold tracking-wider">Signed in as:</span>
+              <span className="text-neutral-200 font-semibold">{user.roleId === 1 ? '👑 Admin' : '🛡️ Staff'} ({user.username})</span>
+            </div>
+          )}
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-red-400 hover:bg-gray-800 transition cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:text-red-400 hover:bg-gray-800 transition cursor-pointer"
           >
             <LogOut size={15} />
             <span>Sign Out</span>
@@ -249,7 +436,7 @@ export default function ProductManagement() {
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
                           <img
-                            src={p.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
+                            src={resolveImageUrl(p.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
                             alt={p.name}
                             className="w-10 h-12 object-cover rounded-md border border-gray-200 bg-gray-100 flex-shrink-0"
                           />
@@ -265,7 +452,7 @@ export default function ProductManagement() {
                           {stock} units
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 font-bold text-gray-900">${Number(p.price).toFixed(2)}</td>
+                      <td className="px-4 py-3.5 font-bold text-gray-900">₱{Number(p.price).toFixed(2)}</td>
                       <td className="px-4 py-3.5">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -314,8 +501,8 @@ export default function ProductManagement() {
 
       {/* Add / Edit Product Modal */}
       {modalMode && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleSaveProduct} className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <form onSubmit={handleSaveProduct} className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-2 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-900">
                 {modalMode === 'add' ? 'Create New Garment' : `Edit Product #${currentProduct.id}`}
@@ -325,7 +512,7 @@ export default function ProductManagement() {
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3.5 text-xs">
               <div>
                 <label className="text-gray-700 font-semibold block mb-1">Product Title</label>
                 <input
@@ -352,7 +539,7 @@ export default function ProductManagement() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-gray-700 font-semibold block mb-1">Price ($ USD)</label>
+                  <label className="text-gray-700 font-semibold block mb-1">Price (₱ PHP)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -364,24 +551,143 @@ export default function ProductManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-700 font-semibold block mb-1">Stock Units</label>
-                  <input
-                    type="number"
-                    required
-                    value={currentProduct.stock}
-                    onChange={(e) => setCurrentProduct({ ...currentProduct, stock: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-900"
-                  />
+              <div>
+                <label className="text-gray-700 font-semibold block mb-1">Stock Units</label>
+                <input
+                  type="number"
+                  required
+                  value={currentProduct.stock}
+                  onChange={(e) => setCurrentProduct({ ...currentProduct, stock: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-900"
+                />
+              </div>
+
+              {/* Multi-Image Gallery Management */}
+              <div className="border border-gray-200 rounded-xl p-3.5 bg-gray-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-gray-800 font-bold block">
+                      Product Photos ({modalMode === 'edit' ? productImages.length : pendingFiles.length} of 6)
+                    </label>
+                    <p className="text-[11px] text-gray-500">
+                      Upload up to 6 pictures (JPG, PNG, or WebP &le; 2 MB).
+                    </p>
+                  </div>
+                  {((modalMode === 'edit' ? productImages.length : pendingFiles.length) < 6) && (
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 hover:border-gray-900 text-gray-800 font-semibold rounded-lg shadow-2xs transition cursor-pointer text-xs ${uploadingImages ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      <Upload size={13} />
+                      <span>{uploadingImages ? 'Uploading...' : 'Add Images'}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={uploadingImages}
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
-                <div>
-                  <label className="text-gray-700 font-semibold block mb-1">Image URL</label>
+
+                {/* Existing Images Grid (Edit Mode) */}
+                {modalMode === 'edit' && productImages.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 pt-1">
+                    {productImages.map((img) => {
+                      const isMain = currentProduct.image === img.imageUrl;
+                      return (
+                        <div
+                          key={img.imageId}
+                          className={`relative group bg-white rounded-lg border overflow-hidden p-1 flex flex-col items-center shadow-2xs transition ${
+                            isMain ? 'border-gray-900 ring-2 ring-gray-900/20' : 'border-gray-200 hover:border-gray-400'
+                          }`}
+                        >
+                          <img
+                            src={resolveImageUrl(img.imageUrl)}
+                            alt="Product photo"
+                            className="w-full h-24 object-cover rounded"
+                          />
+                          <div className="w-full mt-1.5 flex items-center justify-between text-[10px]">
+                            {isMain ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-900 text-white font-bold rounded">
+                                <Check size={10} /> Main
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSetMainImage(img.imageId, img.imageUrl)}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded transition"
+                                title="Set as Main Thumbnail"
+                              >
+                                <Star size={10} /> Make Main
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteImage(img.imageId)}
+                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              title="Delete photo"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Pending Uploads Grid (Add Mode) */}
+                {modalMode === 'add' && pendingFiles.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 pt-1">
+                    {pendingFiles.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="relative group bg-white rounded-lg border border-gray-200 overflow-hidden p-1 flex flex-col items-center shadow-2xs"
+                      >
+                        <img
+                          src={item.previewUrl}
+                          alt={`Upload preview ${idx + 1}`}
+                          className="w-full h-24 object-cover rounded"
+                        />
+                        <div className="w-full mt-1.5 flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500 font-medium">
+                            {idx === 0 ? 'Main Photo' : `#${idx + 1}`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePendingFile(idx)}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                            title="Remove"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {((modalMode === 'edit' && productImages.length === 0) ||
+                  (modalMode === 'add' && pendingFiles.length === 0)) && (
+                  <div className="text-center py-4 bg-white rounded-lg border border-dashed border-gray-300">
+                    <ImageIcon size={24} className="mx-auto text-gray-400 mb-1" />
+                    <p className="text-xs text-gray-600 font-medium">No pictures uploaded yet</p>
+                    <p className="text-[10px] text-gray-400">Click &ldquo;Add Images&rdquo; above to select files from your computer</p>
+                  </div>
+                )}
+
+                {/* Optional Fallback URL */}
+                <div className="pt-1">
+                  <label className="text-[11px] text-gray-500 font-medium block mb-1">
+                    Or external thumbnail URL (optional):
+                  </label>
                   <input
                     type="url"
+                    placeholder="https://..."
                     value={currentProduct.image}
                     onChange={(e) => setCurrentProduct({ ...currentProduct, image: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-900"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-900"
                   />
                 </div>
               </div>

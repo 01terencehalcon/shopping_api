@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../lib/context';
-import { Search, ShoppingCart, User, Shield, LogOut, ChevronDown, Check } from 'lucide-react';
+import { Search, ShoppingCart, User, Shield, LogOut, ChevronDown, Check, Package } from 'lucide-react';
 
 export default function StoreHeader() {
   const {
@@ -11,6 +11,8 @@ export default function StoreHeader() {
     totalItemCount,
     user,
     isAdmin,
+    isStaff,
+    canManageProducts,
     logout,
     searchQuery,
     setSearchQuery,
@@ -89,15 +91,27 @@ export default function StoreHeader() {
         {/* Right Actions: Cart & Profile */}
         <div className="flex items-center gap-2 relative">
           
-          {/* Admin shortcut button */}
-          {isAdmin && (
+          {/* Admin shortcut button for Staff and Admin */}
+          {(isAdmin || isStaff) && (
             <button
               onClick={() => navigateTo('admin')}
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md border border-gray-200 transition"
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md border border-gray-200 transition cursor-pointer"
               title="Open Admin Dashboard"
             >
               <Shield size={13} className="text-gray-700" />
               <span>Admin Panel</span>
+            </button>
+          )}
+
+          {/* Products shortcut button for Staff and Admin */}
+          {canManageProducts && (
+            <button
+              onClick={() => navigateTo('products')}
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 hover:bg-gray-800 text-white rounded-md transition cursor-pointer"
+              title="Open Products"
+            >
+              <Package size={13} />
+              <span>Products</span>
             </button>
           )}
 
@@ -141,7 +155,7 @@ export default function StoreHeader() {
                       <p className="font-semibold text-gray-900 truncate">{user.username}</p>
                       <p className="text-xs text-gray-500 truncate">{user.email || 'customer@styleshop.com'}</p>
                       <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-700">
-                        {user.roleId === 1 ? 'Administrator' : 'Verified Shopper'}
+                        {user.roleId === 1 ? '👑 Administrator' : user.roleId === 2 ? '🛡️ Staff Member' : '👤 Customer'}
                       </span>
                     </div>
 
@@ -150,19 +164,32 @@ export default function StoreHeader() {
                         navigateTo('profile');
                         setProfileDropdownOpen(false);
                       }}
-                      className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
                     >
                       <User size={15} />
                       <span>My Profile & Orders</span>
                     </button>
 
-                    {isAdmin && (
+                    {canManageProducts && (
+                      <button
+                        onClick={() => {
+                          navigateTo('products');
+                          setProfileDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
+                      >
+                        <Package size={15} />
+                        <span>Products</span>
+                      </button>
+                    )}
+
+                    {(isAdmin || isStaff) && (
                       <button
                         onClick={() => {
                           navigateTo('admin');
                           setProfileDropdownOpen(false);
                         }}
-                        className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full text-left px-3.5 py-2 text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
                       >
                         <Shield size={15} />
                         <span>Admin Dashboard</span>

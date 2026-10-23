@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Linq;
 using ClothesShopping.Api.PaymentsModule;
+using ClothesShopping.Api.OrdersModule;
 using ClothesShopping.Api.DTOs;
 using ClothesShopping.Api.Main;
+using ClothesShopping.Api.Security;
 
 namespace ClothesShopping.Api.Controllers
 {
@@ -14,10 +16,12 @@ namespace ClothesShopping.Api.Controllers
     public class PaymentController : ControllerBase
     {
         private readonly IPaymentRepository _repository;
+        private readonly IOrderRepository _orderRepository;
 
-        public PaymentController(IPaymentRepository repository)
+        public PaymentController(IPaymentRepository repository, IOrderRepository orderRepository)
         {
             _repository = repository;
+            _orderRepository = orderRepository;
         }
 
         private static PaymentResponse ToResponse(Payment p) => new()
@@ -36,39 +40,42 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult<IEnumerable<PaymentResponse>>> GetAll()
         {
-            try
-            {
-                var result = await _repository.GetAllAsync();
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            var result = await _repository.GetAllAsync();
+            return Ok(result.Select(ToResponse).ToList());
         }
 
-        /// <summary>Get payment by ID (UserAccess)</summary>
+        /// <summary>Get payment by ID (UserAccess — ownership enforced via order)</summary>
         [HttpGet("{id}")]
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<PaymentResponse>> GetById(int id)
         {
-            try
-            {
-                var entity = await _repository.GetByIdAsync(id);
-                if (entity == null) return NotFound(new { message = "Payment not found" });
-                return Ok(ToResponse(entity));
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            var entity = await _repository.GetByIdAsync(id);
+            if (entity == null) return NotFound(new { message = "Payment not found" });
+
+            // Ownership: look up the parent order
+            var order = await _orderRepository.GetByIdAsync(entity.OrderId);
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && (order == null || order.UserId != currentUserId))
+                return NotFound(new { message = "Payment not found" });
+
+            return Ok(ToResponse(entity));
         }
 
-        /// <summary>Get payments by order ID (UserAccess)</summary>
+        /// <summary>Get payments by order ID (UserAccess — ownership enforced)</summary>
         [HttpGet("order/{orderId}")]
         [Authorize(Policy = "UserAccess")]
         public async Task<ActionResult<IEnumerable<PaymentResponse>>> GetByOrder(int orderId)
         {
-            try
-            {
-                var result = await _repository.GetByOrderIdAsync(orderId);
-                return Ok(result.Select(ToResponse).ToList());
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            // Verify order ownership
+            var order = await _orderRepository.GetByIdAsync(orderId);
+            if (order == null) return NotFound(new { message = "Payment not found" });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && order.UserId != currentUserId)
+                return NotFound(new { message = "Payment not found" });
+
+            var result = await _repository.GetByOrderIdAsync(orderId);
+            return Ok(result.Select(ToResponse).ToList());
         }
 
         /// <summary>Get paginated payments (AdminAccess)</summary>
@@ -76,43 +83,43 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "AdminAccess")]
         public async Task<ActionResult> GetPaginated(int pageNumber = 1, int pageSize = 25)
         {
-            try
+            var paged = await _repository.GetPaginatedAsync(pageNumber, pageSize);
+            return Ok(new PaginationModel<PaymentResponse>
             {
-                var paged = await _repository.GetPaginatedAsync(pageNumber, pageSize);
-                return Ok(new PaginationModel<PaymentResponse>
-                {
-                    Items       = paged.Items.Select(ToResponse).ToList(),
-                    TotalCount  = paged.TotalCount,
-                    PageSize    = paged.PageSize,
-                    CurrentPage = paged.CurrentPage,
-                });
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+                Items       = paged.Items.Select(ToResponse).ToList(),
+                TotalCount  = paged.TotalCount,
+                PageSize    = paged.PageSize,
+                CurrentPage = paged.CurrentPage,
+            });
         }
 
-        /// <summary>Create a payment (UserAccess)</summary>
+        /// <summary>Create a payment (UserAccess — amount from order, status always pending)</summary>
         [HttpPost]
         [Authorize(Policy = "UserAccess")]
         public async Task<IActionResult> Create([FromBody] CreatePaymentRequest request)
         {
-            try
+            if (string.IsNullOrWhiteSpace(request.PaymentMethod))
+                return BadRequest(new { message = "PaymentMethod is required." });
+
+            // Verify the order exists and belongs to the caller
+            var order = await _orderRepository.GetByIdAsync(request.OrderId);
+            if (order == null) return NotFound(new { message = "Order not found" });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && order.UserId != currentUserId)
+                return NotFound(new { message = "Order not found" });
+
+            var entity = new Payment
             {
-                if (string.IsNullOrWhiteSpace(request.PaymentMethod))
-                    return BadRequest(new { message = "PaymentMethod is required." });
+                OrderId       = request.OrderId,
+                Amount        = order.Total,            // Amount comes from the order
+                PaymentMethod = request.PaymentMethod,
+                PaymentStatus = "pending",              // Non-admins always start as pending
+                CouponId      = request.CouponId ?? 0,
+            };
 
-                var entity = new Payment
-                {
-                    OrderId       = request.OrderId,
-                    Amount        = request.Amount,
-                    PaymentMethod = request.PaymentMethod,
-                    PaymentStatus = request.PaymentStatus,
-                    CouponId      = request.CouponId,
-                };
-
-                var newId = await _repository.AddAsync(entity);
-                return Ok(new { message = "Payment created successfully", paymentId = newId });
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            var newId = await _repository.AddAsync(entity);
+            return Ok(new { message = "Payment created successfully", paymentId = newId });
         }
 
         /// <summary>Update payment status (AdminAccess)</summary>
@@ -120,15 +127,11 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdatePaymentStatusRequest request)
         {
-            try
-            {
-                var existing = await _repository.GetByIdAsync(id);
-                if (existing == null) return NotFound(new { message = "Payment not found" });
+            var existing = await _repository.GetByIdAsync(id);
+            if (existing == null) return NotFound(new { message = "Payment not found" });
 
-                await _repository.UpdateStatusAsync(id, request.Status);
-                return Ok(new { message = "Payment status updated" });
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            await _repository.UpdateStatusAsync(id, request.Status);
+            return Ok(new { message = "Payment status updated" });
         }
 
         /// <summary>Delete a payment (AdminAccess)</summary>
@@ -136,15 +139,11 @@ namespace ClothesShopping.Api.Controllers
         [Authorize(Policy = "AdminAccess")]
         public async Task<IActionResult> Delete(int id)
         {
-            try
-            {
-                var existing = await _repository.GetByIdAsync(id);
-                if (existing == null) return NotFound(new { message = "Payment not found" });
+            var existing = await _repository.GetByIdAsync(id);
+            if (existing == null) return NotFound(new { message = "Payment not found" });
 
-                await _repository.DeleteAsync(id);
-                return Ok(new { message = "Payment deleted successfully" });
-            }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            await _repository.DeleteAsync(id);
+            return Ok(new { message = "Payment deleted successfully" });
         }
     }
 }

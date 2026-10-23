@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ClothesShopping.Api.Main;
+using ClothesShopping.Api.DTOs;
 
 namespace ClothesShopping.Api.ProductsModule
 {
@@ -17,5 +18,6 @@ namespace ClothesShopping.Api.ProductsModule
         Task UpdateAsync(Product entity);
         Task DeleteAsync(int id);
         Task BulkUploadAsync(List<Product> dataList);
+        Task<IEnumerable<TopProductResponse>> GetTopAsync(int count);
     }
 }

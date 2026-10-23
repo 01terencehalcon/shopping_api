@@ -223,23 +223,7 @@ namespace ClothesShopping.Api.UserroleModule
                 pageNumber = 1;
             }
 
-            if (pageSize < 0)
-            {
-                pageSize = 0;
-            }
-
-            if (pageSize <= 0)
-            {
-                var allItems = await ExecuteReaderToListAsync("SELECT * FROM \"UserRole\"", MapReaderToUserrole);
-                var totalRecords = allItems.Count;
-                return new PaginationModel<Userrole>()
-                {
-                    Items = allItems,
-                    TotalCount = totalRecords,
-                    PageSize = totalRecords,
-                    CurrentPage = 1
-                };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             string sql = "SELECT * FROM \"UserRole\" ORDER BY \"user_role_id\" LIMIT @pageSize OFFSET @offset";
             var items = await ExecuteReaderToListAsync(sql, MapReaderToUserrole, new[]

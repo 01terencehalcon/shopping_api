@@ -17,10 +17,5 @@ namespace ClothesShopping.Api.DTOs
         [MinLength(6)]
         [JsonPropertyName("password")]
         public string Password { get; set; } = string.Empty;
-
-        [Required]
-        [Range(1, 3, ErrorMessage = "RoleId must be 1 (admin), 2 (staff), or 3 (user).")]
-        [JsonPropertyName("role_id")]
-        public int RoleId { get; set; } = 3;
     }
 }

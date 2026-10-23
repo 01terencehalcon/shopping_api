@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../lib/context';
+import { resolveImageUrl } from '../lib/api';
 import StoreHeader from '../components/StoreHeader';
 import Footer from '../components/Footer';
 import { Trash2, ChevronLeft, ArrowRight, ShieldCheck, Tag, ShoppingBag, X } from 'lucide-react';
@@ -20,11 +21,24 @@ export default function CartScreen() {
     applyCouponCode,
     removeCoupon,
     navigateTo,
+    isLoggedIn,
+    setRedirectAfterLogin,
+    showToast,
   } = useApp();
 
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState('');
   const [applying, setApplying] = useState(false);
+
+  const handleProceedToCheckout = () => {
+    if (!isLoggedIn) {
+      setRedirectAfterLogin('checkout');
+      showToast("Please log in to continue", "info");
+      navigateTo('login');
+    } else {
+      navigateTo('checkout');
+    }
+  };
 
   const handleApplyCoupon = async (e) => {
     e.preventDefault();
@@ -98,7 +112,7 @@ export default function CartScreen() {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3.5">
                           <img
-                            src={item.image}
+                            src={resolveImageUrl(item.image)}
                             alt={item.name}
                             className="w-14 h-16 object-cover rounded-lg border border-gray-200 bg-gray-100 flex-shrink-0"
                           />
@@ -146,12 +160,12 @@ export default function CartScreen() {
 
                       {/* Price */}
                       <td className="px-4 py-4 text-xs font-semibold text-gray-600">
-                        ${Number(item.price).toFixed(2)}
+                        ₱{Number(item.price).toFixed(2)}
                       </td>
 
                       {/* Line Total */}
                       <td className="px-4 py-4 text-sm font-black text-gray-900">
-                        ${(Number(item.price) * item.quantity).toFixed(2)}
+                        ₱{(Number(item.price) * item.quantity).toFixed(2)}
                       </td>
 
                       {/* Remove Button */}
@@ -198,13 +212,13 @@ export default function CartScreen() {
               <div className="space-y-2.5 text-xs border-t border-gray-100 pt-3">
                 <div className="flex justify-between text-gray-600">
                   <span>Subtotal</span>
-                  <span className="font-semibold text-gray-900">${subtotal.toFixed(2)}</span>
+                  <span className="font-semibold text-gray-900">₱{subtotal.toFixed(2)}</span>
                 </div>
 
                 <div className="flex justify-between text-gray-600">
                   <span>Estimated Shipping</span>
                   <span className="font-semibold text-gray-900">
-                    {shippingFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `$${shippingFee.toFixed(2)}`}
+                    {shippingFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `₱${shippingFee.toFixed(2)}`}
                   </span>
                 </div>
 
@@ -215,7 +229,7 @@ export default function CartScreen() {
                       <span>Coupon: {appliedCoupon.code} ({appliedCoupon.discount}%)</span>
                     </span>
                     <div className="flex items-center gap-1">
-                      <span>-${discountAmount.toFixed(2)}</span>
+                      <span>-₱{discountAmount.toFixed(2)}</span>
                       <button
                         onClick={removeCoupon}
                         className="text-emerald-700 hover:text-red-600 transition ml-1"
@@ -231,7 +245,7 @@ export default function CartScreen() {
               {/* Total Row */}
               <div className="border-t border-gray-200 pt-3 flex justify-between items-center text-sm font-black text-gray-900">
                 <span>Total Amount</span>
-                <span className="text-lg">${total.toFixed(2)}</span>
+                <span className="text-lg">₱{total.toFixed(2)}</span>
               </div>
 
               {/* Promo Code Input */}
@@ -259,7 +273,7 @@ export default function CartScreen() {
 
               {/* Proceed to Checkout CTA */}
               <button
-                onClick={() => navigateTo('checkout')}
+                onClick={handleProceedToCheckout}
                 className="w-full py-3 px-4 bg-gray-900 hover:bg-gray-800 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer mt-2"
               >
                 <span>Proceed to Checkout</span>
@@ -274,7 +288,7 @@ export default function CartScreen() {
 
             {/* Benefit reassurance box */}
             <div className="bg-white border border-gray-200 rounded-xl p-3.5 text-center text-xs text-gray-500 shadow-2xs">
-              <p className="font-semibold text-gray-700 mb-0.5">30-Day Happiness Guarantee</p>
+              <p className="font-semibold text-gray-700 mb-0.5">7-Day Happiness Guarantee</p>
               <p className="text-[11px]">Free prepaid returns & exchanges on all eligible garments.</p>
             </div>
           </div>

@@ -235,23 +235,7 @@ namespace ClothesShopping.Api.TblContactModule
                 pageNumber = 1;
             }
 
-            if (pageSize < 0)
-            {
-                pageSize = 0;
-            }
-
-            if (pageSize <= 0)
-            {
-                var allItems = await ExecuteReaderToListAsync("SELECT * FROM \"tbl_Contact\"", MapReaderToTblContact);
-                var totalRecords = allItems.Count;
-                return new PaginationModel<TblContact>()
-                {
-                    Items = allItems,
-                    TotalCount = totalRecords,
-                    PageSize = totalRecords,
-                    CurrentPage = 1
-                };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             string sql = "SELECT * FROM \"tbl_Contact\" ORDER BY \"ID\" LIMIT @pageSize OFFSET @offset";
             var items = await ExecuteReaderToListAsync(sql, MapReaderToTblContact, new[]

@@ -21,15 +21,33 @@ namespace ClothesShopping.Api.AddressModule
                     UserId        = ReadValue<int>(reader, "user_id", 0),
                     RecipientName = ReadValue<string>(reader, "reciepient_name", string.Empty),
                     Phone         = ReadValue<string>(reader, "phone", string.Empty),
-                    Street        = ReadValue<string>(reader, "street", string.Empty),
-                    City          = ReadValue<string>(reader, "city", string.Empty),
+                    Region        = ReadValue<string>(reader, "region", string.Empty),
                     Province      = ReadValue<string>(reader, "province", string.Empty),
+                    City          = ReadValue<string>(reader, "city", string.Empty),
+                    Barangay      = ReadValue<string>(reader, "barangay", string.Empty),
+                    Street        = ReadValue<string>(reader, "street", string.Empty),
                     PostalCode    = ReadValue<string>(reader, "postal_code", string.Empty),
+                    Latitude      = ReadNullableDouble(reader, "latitude"),
+                    Longitude     = ReadNullableDouble(reader, "longitude"),
                 };
             }
             catch (Exception ex)
             {
                 throw new InvalidOperationException("Failed to map database row to Address.", ex);
+            }
+        }
+
+        private static double? ReadNullableDouble(DbDataReader reader, string col)
+        {
+            try
+            {
+                int ord = reader.GetOrdinal(col);
+                if (ord < 0 || reader.IsDBNull(ord)) return null;
+                return Convert.ToDouble(reader.GetValue(ord), System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -48,17 +66,21 @@ namespace ClothesShopping.Api.AddressModule
 
         public async Task<int> AddAsync(Address entity)
         {
-            const string sql = "INSERT INTO \"address\" (\"user_id\", \"reciepient_name\", \"phone\", \"street\", \"city\", \"province\", \"postal_code\") " +
-                               "VALUES (@userId, @recipientName, @phone, @street, @city, @province, @postalCode); SELECT last_insert_rowid();";
+            const string sql = "INSERT INTO \"address\" (\"user_id\", \"reciepient_name\", \"phone\", \"region\", \"province\", \"city\", \"barangay\", \"street\", \"postal_code\", \"latitude\", \"longitude\") " +
+                               "VALUES (@userId, @recipientName, @phone, @region, @province, @city, @barangay, @street, @postalCode, @lat, @lng); SELECT last_insert_rowid();";
             var id = await ExecuteScalarAsync<long>(sql, new[]
             {
                 CreateParameter("userId",        entity.UserId),
                 CreateParameter("recipientName", entity.RecipientName as object ?? DBNull.Value),
                 CreateParameter("phone",         entity.Phone         as object ?? DBNull.Value),
-                CreateParameter("street",        entity.Street        as object ?? DBNull.Value),
-                CreateParameter("city",          entity.City          as object ?? DBNull.Value),
+                CreateParameter("region",        entity.Region        as object ?? DBNull.Value),
                 CreateParameter("province",      entity.Province      as object ?? DBNull.Value),
+                CreateParameter("city",          entity.City          as object ?? DBNull.Value),
+                CreateParameter("barangay",      entity.Barangay      as object ?? DBNull.Value),
+                CreateParameter("street",        entity.Street        as object ?? DBNull.Value),
                 CreateParameter("postalCode",    entity.PostalCode    as object ?? DBNull.Value),
+                CreateParameter("lat",           entity.Latitude      as object ?? DBNull.Value),
+                CreateParameter("lng",           entity.Longitude     as object ?? DBNull.Value),
             });
             return (int)id;
         }
@@ -66,17 +88,22 @@ namespace ClothesShopping.Api.AddressModule
         public async Task UpdateAsync(Address entity)
         {
             const string sql = "UPDATE \"address\" SET \"reciepient_name\"=@recipientName, \"phone\"=@phone, " +
-                               "\"street\"=@street, \"city\"=@city, \"province\"=@province, \"postal_code\"=@postalCode " +
+                               "\"region\"=@region, \"province\"=@province, \"city\"=@city, \"barangay\"=@barangay, \"street\"=@street, \"postal_code\"=@postalCode, " +
+                               "\"latitude\"=@lat, \"longitude\"=@lng " +
                                "WHERE \"address_id\"=@addressId";
             await ExecuteNonQueryAsync(sql, new[]
             {
                 CreateParameter("addressId",     entity.AddressId),
                 CreateParameter("recipientName", entity.RecipientName as object ?? DBNull.Value),
                 CreateParameter("phone",         entity.Phone         as object ?? DBNull.Value),
-                CreateParameter("street",        entity.Street        as object ?? DBNull.Value),
-                CreateParameter("city",          entity.City          as object ?? DBNull.Value),
+                CreateParameter("region",        entity.Region        as object ?? DBNull.Value),
                 CreateParameter("province",      entity.Province      as object ?? DBNull.Value),
+                CreateParameter("city",          entity.City          as object ?? DBNull.Value),
+                CreateParameter("barangay",      entity.Barangay      as object ?? DBNull.Value),
+                CreateParameter("street",        entity.Street        as object ?? DBNull.Value),
                 CreateParameter("postalCode",    entity.PostalCode    as object ?? DBNull.Value),
+                CreateParameter("lat",           entity.Latitude      as object ?? DBNull.Value),
+                CreateParameter("lng",           entity.Longitude     as object ?? DBNull.Value),
             });
         }
 

@@ -116,6 +116,7 @@ builder.Services.AddScoped<ClothesShopping.Api.NotificationsModule.INotification
 builder.Services.AddScoped<ClothesShopping.Api.ProductImagesModule.IProductImageRepository, ClothesShopping.Api.ProductImagesModule.ProductImageRepository>();
 builder.Services.AddScoped<ClothesShopping.Api.InventoryLogsModule.IInventoryLogRepository, ClothesShopping.Api.InventoryLogsModule.InventoryLogRepository>();
 builder.Services.AddScoped<ClothesShopping.Api.AddressModule.IAddressRepository, ClothesShopping.Api.AddressModule.AddressRepository>();
+builder.Services.AddScoped<ClothesShopping.Api.OrderTrackingModule.IOrderTrackingRepository, ClothesShopping.Api.OrderTrackingModule.OrderTrackingRepository>();
 
 // Ensure auth repository is registered for auth endpoints.
 builder.Services.AddScoped<IUsermanRepository, UsermanRepository>(sp =>
@@ -126,6 +127,10 @@ builder.Services.AddScoped<IUsermanRepository, UsermanRepository>(sp =>
 
 // Register JWT Token Service
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+
+// Register global exception handler
+builder.Services.AddExceptionHandler<ClothesShopping.Api.Security.GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 var configuredCorsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()?
     .Where(origin => !string.IsNullOrWhiteSpace(origin))
@@ -154,6 +159,23 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Run safe database migration on startup
+using (var migrationScope = app.Services.CreateScope())
+{
+    var trackingRepo = migrationScope.ServiceProvider.GetRequiredService<ClothesShopping.Api.OrderTrackingModule.IOrderTrackingRepository>();
+    await trackingRepo.EnsureDatabaseMigratedAsync();
+
+    var userRepo = migrationScope.ServiceProvider.GetRequiredService<IUsermanRepository>();
+    await userRepo.EnsureDatabaseMigratedAsync();
+}
+
+// Create uploads folder if missing
+var uploadsFolder = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "uploads", "products");
+Directory.CreateDirectory(uploadsFolder);
+
+// Global exception handler — catches unhandled exceptions and returns a generic 500.
+app.UseExceptionHandler(_ => { });
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -168,6 +190,7 @@ else
 {
     app.UseHttpsRedirection();
 }
+app.UseStaticFiles();
 app.UseCors("ConfiguredOrigins");
 app.UseAuthentication();
 app.UseAuthorization();

@@ -52,11 +52,7 @@ namespace ClothesShopping.Api.CouponsModule
         public async Task<PaginationModel<Coupon>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"coupons\"", MapRow);
-                return new PaginationModel<Coupon> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"coupons\" ORDER BY \"coupon_id\" LIMIT @pageSize OFFSET @offset",

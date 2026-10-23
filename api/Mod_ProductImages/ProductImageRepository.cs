@@ -30,7 +30,7 @@ namespace ClothesShopping.Api.ProductImagesModule
 
         public async Task<IEnumerable<ProductImage>> GetByProductIdAsync(int productId)
             => await ExecuteReaderToListAsync(
-                "SELECT * FROM \"product_images\" WHERE \"product_id\" = @productId",
+                "SELECT * FROM \"product_images\" WHERE \"product_id\" = @productId ORDER BY \"image_id\" ASC",
                 MapRow, new[] { CreateParameter("productId", productId) });
 
         public async Task<ProductImage?> GetByIdAsync(int imageId)

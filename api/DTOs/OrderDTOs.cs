@@ -5,13 +5,7 @@ namespace ClothesShopping.Api.DTOs
 {
     public class CreateOrderRequest
     {
-        [Required]
-        public int UserId { get; set; }
-
-        public double Total { get; set; }
-        public string Status { get; set; } = "pending";
-
-        public List<CreateOrderItemRequest>? Items { get; set; }
+        public string? CouponCode { get; set; }
     }
 
     public class UpdateOrderRequest

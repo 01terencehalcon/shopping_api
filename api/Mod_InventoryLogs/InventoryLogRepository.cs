@@ -49,11 +49,7 @@ namespace ClothesShopping.Api.InventoryLogsModule
         public async Task<PaginationModel<InventoryLog>> GetPaginatedAsync(int pageNumber, int pageSize)
         {
             if (pageNumber <= 0) pageNumber = 1;
-            if (pageSize <= 0)
-            {
-                var all = await ExecuteReaderToListAsync("SELECT * FROM \"inventory_logs\"", MapRow);
-                return new PaginationModel<InventoryLog> { Items = all, TotalCount = all.Count, PageSize = all.Count, CurrentPage = 1 };
-            }
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
             var items = await ExecuteReaderToListAsync(
                 "SELECT * FROM \"inventory_logs\" ORDER BY \"log_id\" DESC LIMIT @pageSize OFFSET @offset",

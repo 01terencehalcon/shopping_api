@@ -1,16 +1,18 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, getStoredUser, getToken, clearAuth } from './api';
+import { api, getStoredUser, getToken, clearAuth, resolveImageUrl } from './api';
 
 const AppContext = createContext();
 
-export function AppProvider({ children }) {
+export function AppProvider({ children, initialScreen = 'home' }) {
   // Screen routing state
-  const [screen, setScreen] = useState('home');
+  const [screen, setScreen] = useState(initialScreen);
   const [selectedProductId, setSelectedProductId] = useState(1);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [redirectAfterLogin, setRedirectAfterLogin] = useState(null);
 
   // Auth state
   const [user, setUser] = useState(null);
@@ -18,39 +20,8 @@ export function AppProvider({ children }) {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Cart state
-  const [cartItems, setCartItems] = useState([
-    {
-      id: 1,
-      productId: 1,
-      name: "Classic White Tee",
-      price: 29.0,
-      size: "M",
-      color: "#6b7280",
-      quantity: 2,
-      image: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"
-    },
-    {
-      id: 2,
-      productId: 2,
-      name: "Slim Chino Pants",
-      price: 59.0,
-      size: "L",
-      color: "#374151",
-      quantity: 1,
-      image: "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&w=600&q=80"
-    },
-    {
-      id: 3,
-      productId: 3,
-      name: "Canvas Sneakers",
-      price: 89.0,
-      size: "42",
-      color: "#111827",
-      quantity: 1,
-      image: "https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?auto=format&fit=crop&w=600&q=80"
-    }
-  ]);
-  const [appliedCoupon, setAppliedCoupon] = useState({ code: "WELCOME20", discount: 20 });
+  const [cartItems, setCartItems] = useState([]);
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
 
   // System & API health status
   const [apiOnline, setApiOnline] = useState(false);
@@ -119,34 +90,55 @@ export function AppProvider({ children }) {
       setUser(savedUser);
       setToken(savedToken);
       showToast(`Welcome back, ${savedUser.username}!`);
-      return { success: true };
+      return { success: true, user: savedUser };
     } else {
       showToast(res.error || "Login failed", "error");
       return { success: false, error: res.error };
     }
   };
 
-  const register = async (username, email, password, roleId = 3) => {
-    const res = await api.auth.register(username, email, password, roleId);
+  const register = async (username, email, password) => {
+    const res = await api.auth.register(username, email, password);
     if (res.success) {
       const savedUser = getStoredUser();
       const savedToken = getToken();
       setUser(savedUser);
       setToken(savedToken);
       showToast(`Account created! Welcome, ${username}.`);
-      return { success: true };
+      return { success: true, user: savedUser };
     } else {
       showToast(res.error || "Registration failed", "error");
       return { success: false, error: res.error };
     }
   };
 
+  const staffRegister = async (username, email, password, inviteCode) => {
+    const res = await api.auth.staffRegister(username, email, password, inviteCode);
+    if (res.success) {
+      showToast("Request received. An admin must approve your account.", "success");
+      return { success: true, message: res.data?.message || "Request received. An admin must approve your account." };
+    } else {
+      showToast(res.error || "Staff registration failed", "error");
+      return { success: false, error: res.error };
+    }
+  };
+
   const logout = () => {
+    const isStaffOrAdmin = user?.roleId === 1 || user?.roleId === 2 || user?.role === 'Admin' || user?.role === 'Staff';
     api.auth.logout();
     setUser(null);
     setToken(null);
     showToast("You have been signed out.");
-    setScreen('home');
+    if (isStaffOrAdmin) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    } else {
+      setScreen('home');
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
+    }
   };
 
   // Cart actions
@@ -166,7 +158,7 @@ export function AppProvider({ children }) {
         size,
         color,
         quantity: qty,
-        image: product.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"
+        image: resolveImageUrl(product.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"
       };
       setCartItems(prev => [newItem, ...prev]);
     }
@@ -225,6 +217,7 @@ export function AppProvider({ children }) {
   // Screen navigation helper
   const navigateTo = (targetScreen, params = {}) => {
     if (params.productId) setSelectedProductId(params.productId);
+    if (params.orderId) setSelectedOrderId(params.orderId);
     if (params.category) setSelectedCategory(params.category);
     if (params.search !== undefined) setSearchQuery(params.search);
     setScreen(targetScreen);
@@ -238,6 +231,8 @@ export function AppProvider({ children }) {
     navigateTo,
     selectedProductId,
     setSelectedProductId,
+    selectedOrderId,
+    setSelectedOrderId,
     selectedCategory,
     setSelectedCategory,
     searchQuery,
@@ -247,8 +242,14 @@ export function AppProvider({ children }) {
     token,
     isAuthLoading,
     isLoggedIn: !!user,
+    redirectAfterLogin,
+    setRedirectAfterLogin,
     isAdmin: user?.roleId === 1 || user?.role === 'Admin',
+    isStaff: user?.roleId === 2 || user?.role === 'Staff',
+    canManageProducts: !!user && (user.roleId === 1 || user.roleId === 2 || user.role === 'Admin' || user.role === 'Staff'),
+    setScreen,
     login,
+    staffRegister,
     register,
     logout,
     // Cart

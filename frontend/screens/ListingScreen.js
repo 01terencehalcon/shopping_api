@@ -2,21 +2,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../lib/context';
-import { api, FALLBACK_PRODUCTS } from '../lib/api';
+import { api, FALLBACK_PRODUCTS, resolveImageUrl } from '../lib/api';
 import StoreHeader from '../components/StoreHeader';
 import Footer from '../components/Footer';
 import { ChevronLeft, ChevronRight, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react';
 
 const CATEGORIES = ['All', 'Tops', 'Bottoms', 'Shoes', 'Accessories'];
-const SIZES = ['XS', 'S', 'M', 'L', 'XL'];
-const COLORS = [
-  { name: 'Light Gray', hex: '#d1d5db' },
-  { name: 'Gray', hex: '#9ca3af' },
-  { name: 'Slate', hex: '#6b7280' },
-  { name: 'Charcoal', hex: '#374151' },
-  { name: 'Black', hex: '#111827' },
-  { name: 'Cream', hex: '#f3f4f6' },
-];
 
 export default function ListingScreen() {
   const { navigateTo, selectedCategory, setSelectedCategory, searchQuery, setSearchQuery } = useApp();
@@ -26,12 +17,19 @@ export default function ListingScreen() {
   
   // Filter states
   const [activeCategory, setActiveCategory] = useState(selectedCategory || 'All');
-  const [activeSizes, setActiveSizes] = useState([]);
-  const [activeColor, setActiveColor] = useState(null);
-  const [priceMax, setPriceMax] = useState(200);
+  const [priceMax, setPriceMax] = useState(null);
   const [sortBy, setSortBy] = useState('newest');
   const [currentPage, setCurrentPage] = useState(1);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+
+  // Highest product price
+  const highestPrice = useMemo(() => {
+    if (!products || products.length === 0) return 250;
+    const max = Math.max(...products.map((p) => Number(p.price) || 0));
+    return Math.ceil(max) || 250;
+  }, [products]);
+
+  const effectiveMaxPrice = priceMax !== null ? priceMax : highestPrice;
 
   // Sync category with global state
   useEffect(() => {
@@ -76,7 +74,7 @@ export default function ListingScreen() {
         return false;
       }
       // Price filter
-      if (p.price > priceMax) {
+      if (p.price > effectiveMaxPrice) {
         return false;
       }
       return true;
@@ -86,18 +84,12 @@ export default function ListingScreen() {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       return b.id - a.id; // newest first
     });
-  }, [products, activeCategory, priceMax, sortBy]);
-
-  const toggleSize = (s) => {
-    setActiveSizes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
-  };
+  }, [products, activeCategory, effectiveMaxPrice, sortBy]);
 
   const clearAllFilters = () => {
     setActiveCategory('All');
     setSelectedCategory('All');
-    setActiveSizes([]);
-    setActiveColor(null);
-    setPriceMax(200);
+    setPriceMax(null);
     setSearchQuery('');
     setSortBy('newest');
   };
@@ -120,7 +112,7 @@ export default function ListingScreen() {
             className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-700"
           >
             <SlidersHorizontal size={14} />
-            <span>Filters ({[activeCategory !== 'All', activeSizes.length > 0, priceMax < 200].filter(Boolean).length})</span>
+            <span>Filters ({[activeCategory !== 'All', priceMax !== null && priceMax < highestPrice].filter(Boolean).length})</span>
           </button>
           <span className="text-xs text-gray-500 font-medium">{filteredProducts.length} items</span>
         </div>
@@ -160,78 +152,26 @@ export default function ListingScreen() {
                 </div>
               </div>
 
-              {/* Size Filter */}
-              <div className="border-t border-gray-200 pt-5">
-                <p className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">
-                  Sizes
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {SIZES.map((size) => {
-                    const active = activeSizes.includes(size);
-                    return (
-                      <button
-                        key={size}
-                        type="button"
-                        onClick={() => toggleSize(size)}
-                        className={`w-9 h-8 text-xs font-semibold rounded-md border transition-all cursor-pointer ${
-                          active
-                            ? 'bg-gray-900 text-white border-gray-900'
-                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-500'
-                        }`}
-                      >
-                        {size}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Color Filter */}
-              <div className="border-t border-gray-200 pt-5">
-                <p className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-3">
-                  Colors
-                </p>
-                <div className="flex flex-wrap gap-2.5">
-                  {COLORS.map((col) => {
-                    const isSelected = activeColor === col.hex;
-                    return (
-                      <button
-                        key={col.hex}
-                        type="button"
-                        onClick={() => setActiveColor(isSelected ? null : col.hex)}
-                        title={col.name}
-                        style={{ backgroundColor: col.hex }}
-                        className={`w-7 h-7 rounded-full border-2 transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-gray-900 ring-2 ring-gray-400 scale-110'
-                            : 'border-white ring-1 ring-gray-300 hover:ring-gray-500'
-                        }`}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-
               {/* Price Range */}
               <div className="border-t border-gray-200 pt-5">
                 <div className="flex justify-between items-center mb-2">
                   <p className="text-xs font-bold text-gray-900 uppercase tracking-wider">
                     Max Price
                   </p>
-                  <span className="text-xs font-bold text-gray-800">${priceMax}</span>
+                  <span className="text-xs font-bold text-gray-800">₱{effectiveMaxPrice}</span>
                 </div>
                 <input
                   type="range"
-                  min="20"
-                  max="250"
-                  step="5"
-                  value={priceMax}
+                  min="0"
+                  max={highestPrice}
+                  step="1"
+                  value={effectiveMaxPrice}
                   onChange={(e) => setPriceMax(Number(e.target.value))}
                   className="w-full accent-gray-900 cursor-pointer"
                 />
                 <div className="flex justify-between text-[11px] text-gray-400 mt-1">
-                  <span>$20</span>
-                  <span>$250</span>
+                  <span>₱0</span>
+                  <span>₱{highestPrice}</span>
                 </div>
               </div>
 
@@ -305,7 +245,7 @@ export default function ListingScreen() {
                       className="h-52 bg-gray-100 overflow-hidden relative cursor-pointer"
                     >
                       <img
-                        src={p.image || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
+                        src={resolveImageUrl(p.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80"}
                         alt={p.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
@@ -324,7 +264,7 @@ export default function ListingScreen() {
                           {p.name}
                         </h2>
                         <p className="text-sm font-bold text-gray-700 mt-1">
-                          ${Number(p.price).toFixed(2)}
+                          ₱{Number(p.price).toFixed(2)}
                         </p>
                       </div>
 
