@@ -114,5 +114,51 @@ namespace ClothesShopping.Api.AddressModule
         public async Task DeleteByUserIdAsync(int userId)
             => await ExecuteNonQueryAsync("DELETE FROM \"address\" WHERE \"user_id\" = @userId",
                 new[] { CreateParameter("userId", userId) });
+
+        public async Task EnsureDatabaseMigratedAsync()
+        {
+            await using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            bool tableExists = false;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='address';";
+                var res = await cmd.ExecuteScalarAsync();
+                tableExists = res != null;
+            }
+            if (!tableExists) return;
+
+            bool hasLatitude = false;
+            bool hasLongitude = false;
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "PRAGMA table_info(\"address\");";
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var colName = reader["name"]?.ToString() ?? string.Empty;
+                    if (string.Equals(colName, "latitude", StringComparison.OrdinalIgnoreCase))
+                        hasLatitude = true;
+                    if (string.Equals(colName, "longitude", StringComparison.OrdinalIgnoreCase))
+                        hasLongitude = true;
+                }
+            }
+
+            if (!hasLatitude)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "ALTER TABLE \"address\" ADD COLUMN \"latitude\" REAL;";
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            if (!hasLongitude)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "ALTER TABLE \"address\" ADD COLUMN \"longitude\" REAL;";
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
     }
 }

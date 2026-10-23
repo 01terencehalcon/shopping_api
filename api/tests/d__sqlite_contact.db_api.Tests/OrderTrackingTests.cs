@@ -51,7 +51,13 @@ public sealed class OrderTrackingTests
         public Task<int> AddAsync(Order entity) => Task.FromResult(1);
         public Task UpdateAsync(Order entity) => OnUpdateAsync != null ? OnUpdateAsync(entity) : Task.CompletedTask;
         public Task DeleteAsync(int id) => Task.CompletedTask;
-        public Task<int> CreateOrderTransactionalAsync(int userId, double total, IReadOnlyList<(int ProductId, int Quantity, double Price)> items, int cartId) => Task.FromResult(1);
+        public Task<int> CreateOrderTransactionalAsync(
+            int userId,
+            double total,
+            IReadOnlyList<(int ProductId, int Quantity, double Price)> items,
+            int cartId,
+            Address? shippingAddress = null) => Task.FromResult(1);
+        public Task EnsureDatabaseMigratedAsync() => Task.CompletedTask;
     }
 
     private class MockTrackingRepo : IOrderTrackingRepository
@@ -76,6 +82,7 @@ public sealed class OrderTrackingTests
         public Task UpdateAsync(Address entity) => Task.CompletedTask;
         public Task DeleteAsync(int id) => Task.CompletedTask;
         public Task DeleteByUserIdAsync(int userId) => Task.CompletedTask;
+        public Task EnsureDatabaseMigratedAsync() => Task.CompletedTask;
     }
 
     private class MockNotificationRepo : INotificationRepository
@@ -155,8 +162,8 @@ public sealed class OrderTrackingTests
             Id = 1,
             OrderId = orderId,
             Status = "pending",
-            Latitude = 40.7128,
-            Longitude = -74.0060,
+            Latitude = 14.5995,
+            Longitude = 120.9842,
             Note = "Order received",
             CreatedAt = DateTime.UtcNow.ToString("o")
         });
@@ -328,5 +335,115 @@ public sealed class OrderTrackingTests
         Assert.Single(notifRepo.Notifications);
         Assert.Equal(customerId, notifRepo.Notifications[0].UserId);
         Assert.Contains("Driver is on the way", notifRepo.Notifications[0].Message);
+    }
+
+    [Fact]
+    public async Task CreateAddress_WithLatitude999_IsRejectedByServer()
+    {
+        var addressRepo = new MockAddressRepo();
+        var controller = new AddressController(addressRepo)
+        {
+            ControllerContext = CreateContext(userId: 101, roleId: 3)
+        };
+
+        var result = await controller.Create(new CreateAddressRequest
+        {
+            RecipientName = "Juan Dela Cruz",
+            Latitude = 999.0, // Invalid latitude
+            Longitude = 120.9842
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateOrder_WithAnotherUsersAddress_Returns404()
+    {
+        const int userAId = 101;
+        const int userBId = 102;
+        const int addressId = 55;
+
+        var addressRepo = new MockAddressRepo();
+        addressRepo.Addresses.Add(new Address
+        {
+            AddressId = addressId,
+            UserId = userBId, // Belongs to User B!
+            City = "Davao",
+            Latitude = 7.1907,
+            Longitude = 125.4553
+        });
+
+        var cartRepo = new TestCartRepository();
+        var cartItemRepo = new TestCartItemRepository();
+        var productRepo = new TestProductRepository();
+
+        var controller = new OrderController(
+            new MockOrderRepo(),
+            new TestOrderItemRepository(),
+            productRepo,
+            cartRepo,
+            cartItemRepo,
+            new TestCouponRepository(),
+            new MockTrackingRepo(),
+            addressRepo,
+            new MockNotificationRepo(),
+            new ConfigurationBuilder().Build())
+        {
+            ControllerContext = CreateContext(userId: userAId, roleId: 3)
+        };
+
+        var result = await controller.Create(new CreateOrderRequest
+        {
+            AddressId = addressId
+        });
+
+        var notFound = Assert.IsType<NotFoundObjectResult>(result);
+        Assert.Equal(StatusCodes.Status404NotFound, notFound.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetTracking_ReturnsSnapshotDeliveryCoordinates_NotNewYork()
+    {
+        const int customerId = 101;
+        const int orderId = 20;
+
+        var orderRepo = new MockOrderRepo
+        {
+            OnGetByIdAsync = _ => Task.FromResult<Order?>(new Order
+            {
+                Id = orderId,
+                UserId = customerId,
+                Status = "shipped",
+                ShipRecipient = "Juan Dela Cruz",
+                ShipCity = "Davao City",
+                ShipLatitude = 7.1907,
+                ShipLongitude = 125.4553
+            })
+        };
+
+        var controller = new OrderController(
+            orderRepo,
+            new TestOrderItemRepository(),
+            new TestProductRepository(),
+            new TestCartRepository(),
+            new TestCartItemRepository(),
+            new TestCouponRepository(),
+            new MockTrackingRepo(),
+            new MockAddressRepo(),
+            new MockNotificationRepo(),
+            new ConfigurationBuilder().Build())
+        {
+            ControllerContext = CreateContext(userId: customerId, roleId: 3)
+        };
+
+        var result = await controller.GetTracking(orderId);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<OrderTrackingResponse>(okResult.Value);
+        Assert.NotNull(response.DeliveryAddress);
+        Assert.Equal("Davao City", response.DeliveryAddress.City);
+        Assert.Equal(7.1907, response.DeliveryAddress.Latitude);
+        Assert.Equal(125.4553, response.DeliveryAddress.Longitude);
     }
 }

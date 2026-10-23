@@ -19,7 +19,8 @@ import {
   Calendar,
   Eye,
   X,
-  MapPin
+  MapPin,
+  AlertCircle
 } from 'lucide-react';
 
 export default function ProfileScreen() {
@@ -28,6 +29,7 @@ export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState('profile');
   const [orders, setOrders] = useState([]);
   const [addresses, setAddresses] = useState([]);
+  const [addressError, setAddressError] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
@@ -40,18 +42,18 @@ export default function ProfileScreen() {
 
   // Edit profile state
   const [editModal, setEditModal] = useState(false);
-  const [profileName, setProfileName] = useState(user?.username || 'Jane Smith');
-  const [profileEmail, setProfileEmail] = useState(user?.email || 'jane.smith@example.com');
-  const [profilePhone, setProfilePhone] = useState('+1 555 000 1234');
+  const [profileName, setProfileName] = useState(user?.username || '');
+  const [profileEmail, setProfileEmail] = useState(user?.email || '');
+  const [profilePhone, setProfilePhone] = useState(user?.phone || '');
 
   // Add address state
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [newAddr, setNewAddr] = useState({
-    recipientName: user?.username || 'Jane Smith',
-    phone: '+1 555 000 1234',
+    recipientName: user?.username || '',
+    phone: '',
     street: '',
     city: '',
-    province: 'NY',
+    province: '',
     postalCode: '',
   });
 
@@ -74,8 +76,19 @@ export default function ProfileScreen() {
         const ords = await api.orders.getByUser(userId);
         if (mounted && Array.isArray(ords)) setOrders(ords);
 
-        const addrs = await api.addresses.getByUser(userId);
-        if (mounted && Array.isArray(addrs)) setAddresses(addrs);
+        const addrsRes = await api.addresses.getByUser(userId);
+        if (mounted) {
+          if (addrsRes && addrsRes.success) {
+            setAddresses(addrsRes.data || []);
+            setAddressError(null);
+          } else if (Array.isArray(addrsRes)) {
+            setAddresses(addrsRes);
+            setAddressError(null);
+          } else {
+            setAddresses([]);
+            setAddressError(addrsRes?.error || 'Unable to connect to the server to load saved addresses.');
+          }
+        }
 
         const notifs = await api.notifications.getByUser(userId);
         if (mounted && Array.isArray(notifs)) setNotifications(notifs);
@@ -115,7 +128,7 @@ export default function ProfileScreen() {
       };
       setAddresses([...addresses, created]);
       setShowAddAddress(false);
-      setNewAddr({ recipientName: '', phone: '', street: '', city: '', province: 'NY', postalCode: '' });
+      setNewAddr({ recipientName: '', phone: '', street: '', city: '', province: '', postalCode: '' });
       showToast("New address added successfully!");
     } catch {
       showToast("Address added to session");
@@ -237,7 +250,7 @@ export default function ProfileScreen() {
                   <div>
                     <p className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Default Address</p>
                     <p className="text-gray-800 font-semibold mt-1 truncate">
-                      {addresses[0] ? `${addresses[0].street}, ${addresses[0].city}` : "123 Main Street, New York, NY"}
+                      {addresses[0] ? `${addresses[0].street}, ${addresses[0].city}` : "No saved address yet"}
                     </p>
                   </div>
                   <div>
@@ -404,6 +417,19 @@ export default function ProfileScreen() {
                   </form>
                 )}
 
+                {addressError && (
+                  <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                    <AlertCircle size={15} className="flex-shrink-0" />
+                    <span>{addressError}</span>
+                  </div>
+                )}
+
+                {!loadingAddresses && !addressError && addresses.length === 0 && (
+                  <div className="p-10 text-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-xl">
+                    No saved address yet
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {addresses.map((addr) => (
                     <div key={addr.addressId} className="p-4 border border-gray-200 rounded-xl relative hover:border-gray-400 transition bg-white">
@@ -420,6 +446,11 @@ export default function ProfileScreen() {
                       <p className="text-xs text-gray-600 leading-normal">{addr.street}</p>
                       <p className="text-xs text-gray-600">{addr.city}, {addr.province} {addr.postalCode}</p>
                       <p className="text-[11px] text-gray-400 mt-2">{addr.phone}</p>
+                      {typeof addr.latitude === 'number' && typeof addr.longitude === 'number' && (
+                        <p className="text-[10px] text-emerald-600 font-mono mt-1">
+                          📍 {addr.latitude.toFixed(4)}, {addr.longitude.toFixed(4)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

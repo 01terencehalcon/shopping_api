@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Linq;
 using ClothesShopping.Api.AddressModule;
 using ClothesShopping.Api.DTOs;
+using ClothesShopping.Api.Security;
 
 namespace ClothesShopping.Api.Controllers
 {
@@ -39,6 +40,10 @@ namespace ClothesShopping.Api.Controllers
         [HttpGet("user/{userId}")]
         public async Task<ActionResult<IEnumerable<AddressResponse>>> GetByUser(int userId)
         {
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && userId != currentUserId)
+                return NotFound(new { message = "Addresses not found" });
+
             var result = await _repository.GetByUserIdAsync(userId);
             return Ok(result.Select(ToResponse).ToList());
         }
@@ -49,6 +54,11 @@ namespace ClothesShopping.Api.Controllers
         {
             var entity = await _repository.GetByIdAsync(id);
             if (entity == null) return NotFound(new { message = "Address not found" });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && entity.UserId != currentUserId)
+                return NotFound(new { message = "Address not found" });
+
             return Ok(ToResponse(entity));
         }
 
@@ -56,9 +66,19 @@ namespace ClothesShopping.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateAddressRequest request)
         {
+            if (request == null) return BadRequest(new { message = "Invalid address request." });
+
+            if (request.Latitude.HasValue && (request.Latitude.Value < -90.0 || request.Latitude.Value > 90.0))
+                return BadRequest(new { message = "Latitude must be between -90 and 90." });
+
+            if (request.Longitude.HasValue && (request.Longitude.Value < -180.0 || request.Longitude.Value > 180.0))
+                return BadRequest(new { message = "Longitude must be between -180 and 180." });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+
             var entity = new Address
             {
-                UserId        = request.UserId,
+                UserId        = currentUserId,
                 RecipientName = request.RecipientName,
                 Phone         = request.Phone,
                 Region        = request.Region,
@@ -79,8 +99,20 @@ namespace ClothesShopping.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateAddressRequest request)
         {
+            if (request == null) return BadRequest(new { message = "Invalid address request." });
+
+            if (request.Latitude.HasValue && (request.Latitude.Value < -90.0 || request.Latitude.Value > 90.0))
+                return BadRequest(new { message = "Latitude must be between -90 and 90." });
+
+            if (request.Longitude.HasValue && (request.Longitude.Value < -180.0 || request.Longitude.Value > 180.0))
+                return BadRequest(new { message = "Longitude must be between -180 and 180." });
+
             var existing = await _repository.GetByIdAsync(id);
             if (existing == null) return NotFound(new { message = "Address not found" });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && existing.UserId != currentUserId)
+                return NotFound(new { message = "Address not found" });
 
             existing.RecipientName = request.RecipientName ?? existing.RecipientName;
             existing.Phone         = request.Phone         ?? existing.Phone;
@@ -103,6 +135,10 @@ namespace ClothesShopping.Api.Controllers
         {
             var existing = await _repository.GetByIdAsync(id);
             if (existing == null) return NotFound(new { message = "Address not found" });
+
+            var currentUserId = ClaimsHelper.CurrentUserId(User);
+            if (!ClaimsHelper.IsAdmin(User) && existing.UserId != currentUserId)
+                return NotFound(new { message = "Address not found" });
 
             await _repository.DeleteAsync(id);
             return Ok(new { message = "Address deleted successfully" });

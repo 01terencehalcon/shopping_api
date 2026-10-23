@@ -11,5 +11,6 @@ namespace ClothesShopping.Api.AddressModule
         Task UpdateAsync(Address entity);
         Task DeleteAsync(int addressId);
         Task DeleteByUserIdAsync(int userId);
+        Task EnsureDatabaseMigratedAsync();
     }
 }

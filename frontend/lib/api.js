@@ -464,20 +464,13 @@ export const api = {
     async getByUser(userId) {
       const res = await request(`/api/Address/user/${userId}`);
       if (res.success && Array.isArray(res.data)) {
-        return res.data;
+        return { success: true, data: res.data };
       }
-      return [
-        {
-          addressId: 1,
-          userId,
-          recipientName: "Jane Smith",
-          phone: "+1 555 000 1234",
-          street: "123 Main Street, Apt 4B",
-          city: "New York",
-          province: "NY",
-          postalCode: "10001"
-        }
-      ];
+      return {
+        success: false,
+        error: res.error || 'Failed to connect to the server to load addresses.',
+        data: []
+      };
     },
 
     async create(address) {

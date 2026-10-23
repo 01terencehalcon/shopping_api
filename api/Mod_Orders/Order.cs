@@ -24,6 +24,16 @@ namespace ClothesShopping.Api.OrdersModule
 
         public string Status { get; set; } = "pending";
 
+        // Delivery snapshot (Fix 2)
+        public string? ShipRecipient { get; set; }
+        public string? ShipPhone { get; set; }
+        public string? ShipStreet { get; set; }
+        public string? ShipCity { get; set; }
+        public string? ShipProvince { get; set; }
+        public string? ShipPostalCode { get; set; }
+        public double? ShipLatitude { get; set; }
+        public double? ShipLongitude { get; set; }
+
         public IReadOnlyList<ValidationResult> Validate()
         {
             var ctx = new ValidationContext(this);

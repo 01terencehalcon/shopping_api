@@ -144,7 +144,7 @@ export default function TrackingMapInner({
     };
   }, [storeLocation, deliveryAddress, checkpoints, pickedLocation]);
 
-  const defaultCenter = allValidPoints.length > 0 ? allValidPoints[0] : [40.7128, -74.0060];
+  const defaultCenter = allValidPoints.length > 0 ? allValidPoints[0] : [14.5995, 120.9842];
 
   return (
     <div className="relative w-full overflow-hidden rounded-2xl shadow-inner border border-gray-200" style={{ height }}>

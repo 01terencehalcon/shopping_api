@@ -40,17 +40,6 @@ namespace ClothesShopping.Api.Controllers
             IProductRepository productRepository,
             ICartRepository cartRepository,
             ICartItemRepository cartItemRepository,
-            ICouponRepository couponRepository)
-            : this(orderRepository, orderItemRepository, productRepository, cartRepository, cartItemRepository, couponRepository, null, null, null, null)
-        {
-        }
-
-        public OrderController(
-            IOrderRepository orderRepository,
-            IOrderItemRepository orderItemRepository,
-            IProductRepository productRepository,
-            ICartRepository cartRepository,
-            ICartItemRepository cartItemRepository,
             ICouponRepository couponRepository,
             IOrderTrackingRepository? orderTrackingRepository,
             IAddressRepository? addressRepository,
@@ -71,11 +60,19 @@ namespace ClothesShopping.Api.Controllers
 
         private static OrderResponse ToOrderResponse(Order o) => new()
         {
-            Id        = o.Id,
-            UserId    = o.UserId,
-            Total     = o.Total,
-            OrderDate = o.OrderDate,
-            Status    = o.Status,
+            Id             = o.Id,
+            UserId         = o.UserId,
+            Total          = o.Total,
+            OrderDate      = o.OrderDate,
+            Status         = o.Status,
+            ShipRecipient  = o.ShipRecipient,
+            ShipPhone      = o.ShipPhone,
+            ShipStreet     = o.ShipStreet,
+            ShipCity       = o.ShipCity,
+            ShipProvince   = o.ShipProvince,
+            ShipPostalCode = o.ShipPostalCode,
+            ShipLatitude   = o.ShipLatitude,
+            ShipLongitude  = o.ShipLongitude,
         };
 
         private static OrderItemResponse ToItemResponse(OrderItem i) => new()
@@ -163,6 +160,18 @@ namespace ClothesShopping.Api.Controllers
         {
             var currentUserId = ClaimsHelper.CurrentUserId(User);
 
+            // 0. Validate delivery address if specified (Fix 3: return 404 if not found or belongs to another user)
+            AddressModule.Address? shippingAddress = null;
+            if (request.AddressId.HasValue)
+            {
+                if (_addressRepository == null)
+                    return BadRequest(new { message = "Address service unavailable." });
+
+                shippingAddress = await _addressRepository.GetByIdAsync(request.AddressId.Value);
+                if (shippingAddress == null || shippingAddress.UserId != currentUserId)
+                    return NotFound(new { message = "Address not found." });
+            }
+
             // 1. Get the user's cart
             var cart = await _cartRepository.GetByUserIdAsync(currentUserId);
             if (cart == null)
@@ -208,16 +217,16 @@ namespace ClothesShopping.Api.Controllers
 
             total = Math.Round(total, 2);
 
-            // 5. Transactional: create order + items + decrement stock + clear cart
+            // 5. Transactional: create order + items + decrement stock + clear cart with delivery snapshot
             var orderId = await _orderRepository.CreateOrderTransactionalAsync(
-                currentUserId, total, orderItems, cart.CartId);
+                currentUserId, total, orderItems, cart.CartId, shippingAddress);
 
             // 6. Insert initial "pending" checkpoint at store location
             if (_orderTrackingRepository != null)
             {
-                var storeLat = _configuration?.GetValue<double?>("StoreLocation:Latitude") ?? 40.7128;
-                var storeLng = _configuration?.GetValue<double?>("StoreLocation:Longitude") ?? -74.0060;
-                var storeLabel = _configuration?["StoreLocation:Label"] ?? "StyleShop Central Hub";
+                var storeLat = _configuration?.GetValue<double?>("StoreLocation:Latitude") ?? 14.5995;
+                var storeLng = _configuration?.GetValue<double?>("StoreLocation:Longitude") ?? 120.9842;
+                var storeLabel = _configuration?["StoreLocation:Label"] ?? "StyleShop Manila Central Hub";
 
                 await _orderTrackingRepository.AddAsync(new OrderTracking
                 {
@@ -247,15 +256,46 @@ namespace ClothesShopping.Api.Controllers
             if (!isStaffOrAdmin && order.UserId != currentUserId)
                 return NotFound(new { message = "Order not found" });
 
-            var storeLat = _configuration?.GetValue<double?>("StoreLocation:Latitude") ?? 40.7128;
-            var storeLng = _configuration?.GetValue<double?>("StoreLocation:Longitude") ?? -74.0060;
-            var storeLabel = _configuration?["StoreLocation:Label"] ?? "StyleShop Central Hub";
+            var storeLat = _configuration?.GetValue<double?>("StoreLocation:Latitude") ?? 14.5995;
+            var storeLng = _configuration?.GetValue<double?>("StoreLocation:Longitude") ?? 120.9842;
+            var storeLabel = _configuration?["StoreLocation:Label"] ?? "StyleShop Manila Central Hub";
 
-            // Get customer's saved address
-            var addresses = _addressRepository != null
-                ? await _addressRepository.GetByUserIdAsync(order.UserId)
-                : Enumerable.Empty<Address>();
-            var deliveryAddr = addresses.FirstOrDefault();
+            // Delivery location from ORDER SNAPSHOT (Fix 4)
+            DeliveryAddressLocationDto? deliveryDto = null;
+            if (!string.IsNullOrWhiteSpace(order.ShipRecipient) || !string.IsNullOrWhiteSpace(order.ShipStreet) || order.ShipLatitude.HasValue)
+            {
+                deliveryDto = new DeliveryAddressLocationDto
+                {
+                    RecipientName = order.ShipRecipient,
+                    Street = order.ShipStreet,
+                    City = order.ShipCity,
+                    Province = order.ShipProvince,
+                    PostalCode = order.ShipPostalCode,
+                    Latitude = order.ShipLatitude,
+                    Longitude = order.ShipLongitude
+                };
+            }
+            else
+            {
+                // Fallback to customer's saved address ONLY if snapshot is absent (for legacy orders)
+                var addresses = _addressRepository != null
+                    ? await _addressRepository.GetByUserIdAsync(order.UserId)
+                    : Enumerable.Empty<AddressModule.Address>();
+                var deliveryAddr = addresses.FirstOrDefault();
+                if (deliveryAddr != null)
+                {
+                    deliveryDto = new DeliveryAddressLocationDto
+                    {
+                        RecipientName = deliveryAddr.RecipientName,
+                        Street = deliveryAddr.Street,
+                        City = deliveryAddr.City,
+                        Province = deliveryAddr.Province,
+                        PostalCode = deliveryAddr.PostalCode,
+                        Latitude = deliveryAddr.Latitude,
+                        Longitude = deliveryAddr.Longitude
+                    };
+                }
+            }
 
             var checkpoints = _orderTrackingRepository != null
                 ? (await _orderTrackingRepository.GetByOrderIdAsync(id)).ToList()
@@ -271,16 +311,7 @@ namespace ClothesShopping.Api.Controllers
                     Longitude = storeLng,
                     Label = storeLabel
                 },
-                DeliveryAddress = deliveryAddr == null ? null : new DeliveryAddressLocationDto
-                {
-                    RecipientName = deliveryAddr.RecipientName,
-                    Street = deliveryAddr.Street,
-                    City = deliveryAddr.City,
-                    Province = deliveryAddr.Province,
-                    PostalCode = deliveryAddr.PostalCode,
-                    Latitude = deliveryAddr.Latitude,
-                    Longitude = deliveryAddr.Longitude
-                },
+                DeliveryAddress = deliveryDto,
                 Checkpoints = checkpoints.Select(c => new TrackingCheckpointDto
                 {
                     Id = c.Id,

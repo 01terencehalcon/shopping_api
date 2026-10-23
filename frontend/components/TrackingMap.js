@@ -29,19 +29,19 @@ export default function TrackingMap({
   const hasPickedCoords = Boolean(pickedLocation?.lat && pickedLocation?.lng);
 
   // If order has no coordinates at all (and not in interactive picking mode)
-  if (!interactivePick && !hasStoreCoords && !hasDeliveryCoords && !hasCheckpointCoords && !hasPickedCoords) {
+  if (!interactivePick && !hasDeliveryCoords && !hasCheckpointCoords && !hasPickedCoords) {
     return (
       <div
         className="w-full rounded-2xl bg-gradient-to-br from-gray-50 to-gray-100 border border-dashed border-gray-300 flex flex-col items-center justify-center p-8 text-center space-y-3"
         style={{ height }}
       >
-        <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 shadow-xs">
+        <div className="w-12 h-12 rounded-2xl bg-gray-100 text-gray-500 flex items-center justify-center border border-gray-200 shadow-xs">
           <MapPin size={24} />
         </div>
         <div>
-          <h4 className="text-sm font-bold text-gray-800">No Tracking Coordinates Yet</h4>
+          <h4 className="text-sm font-bold text-gray-800">Delivery location not set</h4>
           <p className="text-xs text-gray-500 max-w-sm mt-1">
-            Tracking checkpoints will appear on the street map once our dispatch team scans and routes your package.
+            This order does not have delivery coordinates recorded on its order snapshot.
           </p>
         </div>
       </div>

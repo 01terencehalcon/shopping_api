@@ -67,5 +67,49 @@ namespace ClothesShopping.Api.CartItemsModule
         public async Task DeleteByCartIdAsync(int cartId)
             => await ExecuteNonQueryAsync("DELETE FROM \"cart_items\" WHERE \"cart_id\" = @cartId",
                 new[] { CreateParameter("cartId", cartId) });
+
+        /// <summary>
+        /// Fixes the cart_items FK mismatch: the original DDL referenced cart(id) but cart's PK is cart_id.
+        /// Recreates the table with the correct FK if needed.
+        /// </summary>
+        public async Task EnsureDatabaseMigratedAsync()
+        {
+            await using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+
+            // Check if cart_items table exists
+            string? tableExists;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='cart_items';";
+                tableExists = (await cmd.ExecuteScalarAsync())?.ToString();
+            }
+            if (tableExists == null) return;
+
+            // If the DDL already references cart(cart_id) it's already fixed
+            if (tableExists.Contains("cart(cart_id)", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Recreate with correct FK using the rename-copy-drop pattern
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+BEGIN;
+ALTER TABLE ""cart_items"" RENAME TO ""cart_items_old"";
+CREATE TABLE ""cart_items"" (
+    cart_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cart_id      INTEGER NOT NULL,
+    product_id   INTEGER NOT NULL,
+    quantity     INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (cart_id)    REFERENCES cart(cart_id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+INSERT INTO ""cart_items"" (cart_item_id, cart_id, product_id, quantity)
+    SELECT cart_item_id, cart_id, product_id, quantity FROM ""cart_items_old"";
+DROP TABLE ""cart_items_old"";
+COMMIT;";
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
     }
 }

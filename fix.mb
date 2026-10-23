@@ -1,0 +1,132 @@
+# Fix: The map shows New York instead of the customer's chosen location
+
+> **For the coding agent.** Read this whole file first. Do **STEP 0** (investigate and report),
+> then **stop and wait** for the owner to reply "go" before changing any code.
+
+## Project context
+
+- Backend: ASP.NET Core (net10.0) in `/api`, SQLite (`clothes.db`), plain repositories (no EF),
+  controllers in `/api/controllers`, DTOs in `/api/DTOs`, modules in `Mod_*` folders.
+- Frontend: Next.js in `/frontend`. Screens in `/frontend/screens`, API calls in `/frontend/lib/api.js`,
+  global state in `/frontend/lib/context.js`.
+- Roles: 1 = admin, 2 = staff, 3 = customer. The user id must always come from the JWT, never from the request.
+- The store uses pesos (₱) and is in the Philippines.
+
+## The problem
+
+The customer sets a location, buys a product, and the map still shows **New York**.
+
+## What was found in an earlier snapshot of the code
+
+This snapshot may be older than the owner's current code (the owner's app has an "Order Tracking"
+screen and map that were not in the snapshot). So **verify each point below in the current code**.
+
+1. **Hardcoded New York defaults in checkout.** `frontend/screens/CheckoutScreen.js` initializes the form with
+   fake data: `firstName 'Jane'`, `lastName 'Smith'`, `phone '+1 555 019 2831'`,
+   `street '123 Fashion Blvd, Suite 400'`, `city 'New York'`, `province 'NY'`, `postalCode '10001'`,
+   `country 'United States'`. If the customer does not change every field, New York is saved and shown.
+2. **Fake address fallback.** `frontend/lib/api.js`, `addresses.getByUser`, returns a made-up "Jane Smith,
+   123 Main Street, New York, NY" address whenever the request fails or returns something unexpected.
+   The app then silently shows New York as if it were real data.
+3. **Fake text in the profile.** `frontend/screens/ProfileScreen.js` shows `123 Main Street, New York, NY`
+   when there is no saved address.
+4. **No coordinates are stored.** The `address` table has only: `address_id, user_id, reciepient_name, phone,
+   street, city, province, postal_code`. There is **no latitude or longitude**, so a map can only guess
+   (or fall back to a default center such as New York: `40.7128, -74.0060`).
+5. **Orders are not linked to a delivery location.** The `orders` table has only
+   `id, user_id, total, order_date, status`. Checkout creates the order first and saves the address in a
+   separate call afterwards, and nobody checks whether that second call succeeded
+   (`request()` in `api.js` does not throw, it returns `{ success: false }`).
+6. **The map component probably has a default center of New York** and/or geocodes the hardcoded city
+   (not in the snapshot, check it in the current code).
+
+## STEP 0: Investigate and report (do not edit anything yet)
+
+1. Find every place the map is rendered (search for `leaflet`, `MapContainer`, `iframe`, `maps.google`,
+   `mapbox`, `center=`, `40.71`, `-74.00`, `latitude`, `longitude`). Say which library is used.
+2. Find every occurrence of `New York`, `NY`, `10001`, `Jane`, `Smith`, `+1 555`, `United States`
+   in `/frontend` and `/api`.
+3. Trace the full path of one order: the address the customer enters, the payload sent to
+   `api.orders.create`, the payload sent to `api.addresses.create`, what is stored in SQLite, and what the
+   tracking screen reads to draw the map. Write down where the real location is lost or replaced.
+4. Check the real database rows (read only): does the address from a recent test order exist, and does
+   it have coordinates?
+5. Check the browser-side data: is anything cached in `localStorage` or context state that overrides
+   the real address?
+
+Report your findings as a short list: **file, line, what is wrong, proposed fix**. Then wait for "go".
+
+## FIXES (after the owner says "go"; do them in this order, one at a time)
+
+### Backend
+
+1. **Coordinates on addresses.** Add nullable `latitude REAL` and `longitude REAL` to the `address` table with
+   a safe migration that checks whether the columns exist first and runs once at startup. Keep all existing
+   rows. Update the Address model, DTOs (create and response) and repository. Validate on the server:
+   latitude between -90 and 90, longitude between -180 and 180.
+2. **Delivery location on orders.** Store a **snapshot** of the delivery details on each order (so the map and
+   the receipt stay correct even if the customer edits the address later). Add nullable columns to `orders`
+   with a safe migration: `ship_recipient`, `ship_phone`, `ship_street`, `ship_city`, `ship_province`,
+   `ship_postal_code`, `ship_latitude`, `ship_longitude`.
+3. **Create order with an address.** The create-order request takes an `addressId`. The server checks that
+   the address belongs to the user in the JWT (return 404 otherwise), copies the snapshot into the order,
+   and does the whole thing in one transaction. Do not trust a user id from the request body.
+4. **Tracking data.** The order tracking endpoint returns the delivery latitude, longitude and address text
+   from the order snapshot. A customer can only read their own orders (return 404 for others); admin and staff
+   can read all. If an order has no coordinates, return nulls (never a default city).
+
+### Frontend
+
+5. **Remove all fake data.** In `CheckoutScreen.js` start every field empty (use placeholders only, no real
+   values like Jane Smith or New York). Pre-fill from the customer's saved default address if one exists.
+   In `api.js`, `addresses.getByUser` must not return a made-up address on failure: return an error state
+   and show a message. In `ProfileScreen.js` replace the fake text with "No saved address yet".
+6. **Address selection at checkout.** Show the customer's saved addresses to choose from, plus
+   "Add a new address". Checkout cannot be submitted without a chosen address that has coordinates
+   (show a clear message).
+7. **Location picker map.** Use Leaflet with OpenStreetMap tiles (free, no API key; use `react-leaflet`).
+   If Leaflet is already in the project, reuse it. Load the map with `next/dynamic` and `ssr: false`.
+   - Click on the map, or drag the marker, to set the location. Save `latitude` and `longitude`.
+   - A "Use my current location" button that uses `navigator.geolocation` (ask permission, handle denial).
+   - **Default map center when nothing is selected: the Philippines** (for example `14.5995, 120.9842`
+     at zoom 6). **Never default to New York.** If the customer has a saved address with coordinates,
+     center there.
+   - Optional address search with Nominatim only when the user clicks a "Search" button (not on every
+     keystroke), at most 1 request per second, with a proper `Accept-Language` header and OpenStreetMap
+     attribution. Do not add paid geocoding services or API keys.
+   - Fix the default Leaflet marker icon problem, and call `invalidateSize()` if the map is inside a
+     modal, tab or collapsible section.
+8. **Order flow.** Create the address first (check `res.success`), then create the order with its
+   `addressId`. If either call fails, show the server's error and do **not** show a success screen or clear
+   the cart.
+9. **Tracking map.** Draw markers from the data the tracking endpoint returns: the delivery location (from
+   the order snapshot) and any tracking checkpoints. Auto-fit the bounds to the markers. If an order has no
+   coordinates, show "Delivery location not set" instead of a map centered on a default city.
+10. **Search again** for `New York`, `NY`, `10001`, `Jane`, `Smith` and `+1 555` across `/frontend` and
+    `/api`. None may remain as live defaults. Also check for `40.7128` and `-74.0060`.
+
+## Acceptance tests (the fix is not done until all pass)
+
+1. Log in as a customer, pick a location in **Davao** (or any place outside New York) on the map, place an order:
+   the map on the order screen shows that exact place, not New York.
+2. In the database, the new `address` row and the new `orders` row both contain the latitude and longitude
+   of the chosen place.
+3. Edit the saved address afterwards: the old order still shows the original delivery location.
+4. A brand new customer with no saved address sees an empty form and a map centered on the Philippines,
+   with no "Jane Smith" or New York anywhere.
+5. Turn the API off: checkout and profile show an error message, not a fake address.
+6. Another customer cannot read this order's tracking data (404).
+7. Submitting an address with latitude 999 is rejected by the server.
+8. `dotnet build` and `npm run build` both succeed.
+
+## Rules
+
+- Do STEP 0 first and wait for "go". Then work through the fixes **in order** and tell the owner what changed
+  after each one.
+- Keep the existing code style and folder structure. Do not rename files.
+- Do not change unrelated things (styling of other screens, cart logic, login).
+- Migrations must be additive and safe: do not delete or overwrite existing data in `clothes.db`.
+- Parameterized SQL only. The server must enforce every rule (ownership, coordinate ranges); hiding UI is not enough.
+- No new libraries except `leaflet` and `react-leaflet`. No API keys in the code.
+- Never use New York (or any city) as a silent fallback for missing data.
+- When finished, give the owner a per-file summary and the exact steps to test it.

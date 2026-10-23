@@ -11,5 +11,6 @@ namespace ClothesShopping.Api.CartItemsModule
         Task UpdateQuantityAsync(int cartItemId, int quantity);
         Task DeleteAsync(int cartItemId);
         Task DeleteByCartIdAsync(int cartId);
+        Task EnsureDatabaseMigratedAsync();
     }
 }

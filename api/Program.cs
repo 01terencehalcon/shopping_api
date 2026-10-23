@@ -165,8 +165,18 @@ using (var migrationScope = app.Services.CreateScope())
     var trackingRepo = migrationScope.ServiceProvider.GetRequiredService<ClothesShopping.Api.OrderTrackingModule.IOrderTrackingRepository>();
     await trackingRepo.EnsureDatabaseMigratedAsync();
 
+    var addressRepo = migrationScope.ServiceProvider.GetRequiredService<ClothesShopping.Api.AddressModule.IAddressRepository>();
+    await addressRepo.EnsureDatabaseMigratedAsync();
+
+    var orderRepo = migrationScope.ServiceProvider.GetRequiredService<ClothesShopping.Api.OrdersModule.IOrderRepository>();
+    await orderRepo.EnsureDatabaseMigratedAsync();
+
     var userRepo = migrationScope.ServiceProvider.GetRequiredService<IUsermanRepository>();
     await userRepo.EnsureDatabaseMigratedAsync();
+
+    // Fix cart_items FK mismatch (referenced cart(id) but PK is cart_id)
+    var cartItemRepo = migrationScope.ServiceProvider.GetRequiredService<ClothesShopping.Api.CartItemsModule.ICartItemRepository>();
+    await cartItemRepo.EnsureDatabaseMigratedAsync();
 }
 
 // Create uploads folder if missing

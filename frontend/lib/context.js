@@ -74,6 +74,44 @@ export function AppProvider({ children, initialScreen = 'home' }) {
     setIsAuthLoading(false);
   }, []);
 
+  // Load server-side cart when user is logged in so cart persists across devices/sessions.
+  // Server items take precedence; local-only items not on the server are kept.
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.userId) return;
+      try {
+        const cart = await api.cart.getByUser(user.userId);
+        const serverItems = cart?.items || [];
+        if (serverItems.length === 0) return;
+
+        const productsRes = await api.products.getAll();
+        const products = Array.isArray(productsRes) ? productsRes : [];
+        const byId = new Map(products.map(p => [p.id, p]));
+
+        const mapped = serverItems.map(item => {
+          const product = byId.get(item.productId) || {};
+          return {
+            id: item.cartItemId,
+            productId: item.productId,
+            name: product.name || `Product #${item.productId}`,
+            price: product.price ?? 0,
+            size: 'M',
+            color: '#6b7280',
+            quantity: item.quantity,
+            image: resolveImageUrl(product.image) || "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80",
+          };
+        });
+
+        const serverIds = new Set(mapped.map(i => i.productId));
+        const extraLocal = cartItems.filter(i => !serverIds.has(i.productId));
+        setCartItems([...mapped, ...extraLocal]);
+      } catch (e) {
+        console.warn("Failed to load cart from server", e);
+      }
+    };
+    load();
+  }, [user]);
+
   // Sync cart to localStorage whenever it changes
   useEffect(() => {
     if (typeof window !== 'undefined') {

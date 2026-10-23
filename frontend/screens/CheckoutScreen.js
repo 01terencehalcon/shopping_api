@@ -5,6 +5,7 @@ import { useApp } from '../lib/context';
 import { api, resolveImageUrl } from '../lib/api';
 import StoreHeader from '../components/StoreHeader';
 import Footer from '../components/Footer';
+import LocationPickerMap from '../components/LocationPickerMap';
 import {
   ChevronRight,
   ShoppingBag,
@@ -13,7 +14,10 @@ import {
   Truck,
   Wallet,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  MapPin,
+  Plus,
+  AlertCircle
 } from 'lucide-react';
 
 export default function CheckoutScreen() {
@@ -34,8 +38,34 @@ export default function CheckoutScreen() {
 
   const [payMethod, setPayMethod] = useState('cod');
   const [placedOrderId, setPlacedOrderId] = useState(null);
+  const [placedOrderSnapshot, setPlacedOrderSnapshot] = useState(null);
   const [placing, setPlacing] = useState(false);
 
+  // Saved addresses state
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
+  const [addressApiError, setAddressApiError] = useState(null);
+  const [selectedAddressId, setSelectedAddressId] = useState('new'); // id or 'new'
+
+  // New address form fields (all start empty, placeholders only)
+  const [newAddress, setNewAddress] = useState({
+    recipientName: user?.username || '',
+    phone: user?.phone || '',
+    street: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    latitude: null,
+    longitude: null,
+  });
+
+  const [cardData, setCardData] = useState({
+    number: '',
+    expiry: '',
+    cvv: '',
+  });
+
+  // Redirect if not logged in
   useEffect(() => {
     if (!isAuthLoading && !isLoggedIn) {
       setRedirectAfterLogin('checkout');
@@ -44,28 +74,57 @@ export default function CheckoutScreen() {
     }
   }, [isLoggedIn, isAuthLoading, setRedirectAfterLogin, showToast, navigateTo]);
 
-  // Form fields
-  const [formData, setFormData] = useState({
-    firstName: user?.username ? user.username.split(' ')[0] : 'Jane',
-    lastName: 'Smith',
-    email: user?.email || 'jane.smith@example.com',
-    phone: '+1 555 019 2831',
-    street: '',
-    city: '',
-    province: '',
-    postalCode: '',
-    country: '',
-  });
+  // Load saved addresses on mount
+  useEffect(() => {
+    let mounted = true;
+    async function fetchAddresses() {
+      if (!user?.userId) return;
+      setLoadingAddresses(true);
+      setAddressApiError(null);
 
-  const [cardData, setCardData] = useState({
-    number: '4242 •••• •••• 4242',
-    expiry: '12/28',
-    cvv: '888',
-  });
+      try {
+        const res = await api.addresses.getByUser(user.userId);
+        if (!mounted) return;
 
-  const handleInputChange = (e) => {
+        if (res && res.success && Array.isArray(res.data)) {
+          setSavedAddresses(res.data);
+          if (res.data.length > 0) {
+            // Find first address with coordinates if available, else first address
+            const withCoords = res.data.find(a => typeof a.latitude === 'number' && typeof a.longitude === 'number');
+            setSelectedAddressId(withCoords ? withCoords.addressId : res.data[0].addressId);
+          } else {
+            setSelectedAddressId('new');
+          }
+        } else if (Array.isArray(res)) {
+          // In case array returned directly
+          setSavedAddresses(res);
+          if (res.length > 0) {
+            setSelectedAddressId(res[0].addressId);
+          } else {
+            setSelectedAddressId('new');
+          }
+        } else {
+          setAddressApiError(res?.error || 'Unable to connect to the server to load saved addresses.');
+          setSelectedAddressId('new');
+        }
+      } catch (err) {
+        if (mounted) {
+          setAddressApiError('Unable to connect to the server to load saved addresses.');
+          setSelectedAddressId('new');
+        }
+      } finally {
+        if (mounted) setLoadingAddresses(false);
+      }
+    }
+
+    if (isLoggedIn && user?.userId) {
+      fetchAddresses();
+    }
+  }, [isLoggedIn, user]);
+
+  const handleNewAddressChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setNewAddress(prev => ({ ...prev, [name]: value }));
   };
 
   const handlePlaceOrder = async (e) => {
@@ -76,11 +135,110 @@ export default function CheckoutScreen() {
       return;
     }
 
-    setPlacing(true);
+    let finalAddressId = null;
+    let chosenSnapshot = null;
 
+    if (selectedAddressId === 'new') {
+      // Validate new address required fields
+      if (!newAddress.recipientName.trim()) {
+        showToast("Please enter the recipient name.", "error");
+        return;
+      }
+      if (!newAddress.phone.trim()) {
+        showToast("Please enter a contact phone number.", "error");
+        return;
+      }
+      if (!newAddress.street.trim()) {
+        showToast("Please enter the street address.", "error");
+        return;
+      }
+      if (!newAddress.city.trim()) {
+        showToast("Please enter the city.", "error");
+        return;
+      }
+
+      // Rule 6 & 8: Checkout cannot be submitted without coordinates
+      if (
+        typeof newAddress.latitude !== 'number' ||
+        typeof newAddress.longitude !== 'number' ||
+        isNaN(newAddress.latitude) ||
+        isNaN(newAddress.longitude)
+      ) {
+        showToast("Please pin your exact delivery location on the map before proceeding.", "error");
+        return;
+      }
+
+      setPlacing(true);
+
+      // Create address first (Fix 8)
+      try {
+        const addrPayload = {
+          userId: user?.userId,
+          recipientName: newAddress.recipientName.trim(),
+          phone: newAddress.phone.trim(),
+          street: newAddress.street.trim(),
+          city: newAddress.city.trim(),
+          province: newAddress.province.trim(),
+          postalCode: newAddress.postalCode.trim(),
+          latitude: newAddress.latitude,
+          longitude: newAddress.longitude,
+        };
+
+        const addrRes = await api.addresses.create(addrPayload);
+        if (!addrRes || !addrRes.success) {
+          showToast(addrRes?.error || "Failed to save delivery address. Order not placed.", "error");
+          setPlacing(false);
+          return;
+        }
+
+        finalAddressId = addrRes.data?.addressId || addrRes.data?.id || addrRes.id;
+        chosenSnapshot = {
+          recipient: newAddress.recipientName.trim(),
+          phone: newAddress.phone.trim(),
+          street: newAddress.street.trim(),
+          city: newAddress.city.trim(),
+          province: newAddress.province.trim(),
+        };
+      } catch (err) {
+        console.error("Address creation failed:", err);
+        showToast("Failed to save delivery address on server. Order not placed.", "error");
+        setPlacing(false);
+        return;
+      }
+    } else {
+      // Using an existing saved address
+      const chosen = savedAddresses.find(a => a.addressId === Number(selectedAddressId));
+      if (!chosen) {
+        showToast("Selected address not found. Please choose an address.", "error");
+        return;
+      }
+
+      if (
+        typeof chosen.latitude !== 'number' ||
+        typeof chosen.longitude !== 'number' ||
+        isNaN(chosen.latitude) ||
+        isNaN(chosen.longitude)
+      ) {
+        showToast("The selected saved address has no map coordinates. Please use '+ Add a new address' with a map pin to proceed.", "error");
+        return;
+      }
+
+      finalAddressId = chosen.addressId;
+      chosenSnapshot = {
+        recipient: chosen.recipientName,
+        phone: chosen.phone,
+        street: chosen.street,
+        city: chosen.city,
+        province: chosen.province,
+      };
+      setPlacing(true);
+    }
+
+    // Now create the order with addressId (Fix 8)
     try {
       const orderPayload = {
-        userId: user?.userId || 3,
+        userId: user?.userId,
+        addressId: finalAddressId,
         total: Number(total.toFixed(2)),
         status: "Processing",
         items: cartItems.map(item => ({
@@ -90,31 +248,21 @@ export default function CheckoutScreen() {
         }))
       };
 
-      const res = await api.orders.create(orderPayload);
-      const generatedId = res?.id || res?.data?.id || Math.floor(1000 + Math.random() * 9000);
-
-      // Also persist address to backend
-      if (user?.userId) {
-        api.addresses.create({
-          userId: user.userId,
-          recipientName: `${formData.firstName} ${formData.lastName}`,
-          phone: formData.phone,
-          street: formData.street,
-          city: formData.city,
-          province: formData.province,
-          postalCode: formData.postalCode,
-        }).catch(() => {});
+      const orderRes = await api.orders.create(orderPayload);
+      if (!orderRes || !orderRes.success) {
+        showToast(orderRes?.error || "Failed to place order on server. Cart has been preserved.", "error");
+        setPlacing(false);
+        return;
       }
 
-      setPlacedOrderId(generatedId);
+      const orderId = orderRes.data?.id || orderRes.data?.orderId || orderRes.id;
+      setPlacedOrderId(orderId);
+      setPlacedOrderSnapshot(chosenSnapshot);
       clearCart();
-      showToast(`Order #ORD-${generatedId} placed successfully!`);
+      showToast(`Order #ORD-${orderId} placed successfully!`);
     } catch (err) {
-      console.warn("Order placement fallback error:", err);
-      // Fallback order ID
-      const fallbackId = Math.floor(1000 + Math.random() * 9000);
-      setPlacedOrderId(fallbackId);
-      clearCart();
+      console.error("Order creation failed:", err);
+      showToast("Unable to submit order to server. Cart has been preserved.", "error");
     } finally {
       setPlacing(false);
     }
@@ -149,10 +297,20 @@ export default function CheckoutScreen() {
                 <span className="text-gray-500">Estimated Delivery:</span>
                 <span className="font-semibold text-gray-800">3-5 Business Days</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Shipping To:</span>
-                <span className="font-semibold text-gray-800 truncate max-w-[200px]">{formData.street}, {formData.city}</span>
-              </div>
+              {placedOrderSnapshot && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Recipient:</span>
+                    <span className="font-semibold text-gray-800">{placedOrderSnapshot.recipient}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Shipping To:</span>
+                    <span className="font-semibold text-gray-800 truncate max-w-[200px]">
+                      {placedOrderSnapshot.street}, {placedOrderSnapshot.city}
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">Payment:</span>
                 <span className="font-semibold text-gray-800 uppercase">{payMethod}</span>
@@ -161,14 +319,21 @@ export default function CheckoutScreen() {
 
             <div className="space-y-2">
               <button
-                onClick={() => navigateTo('profile')}
-                className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                onClick={() => navigateTo('tracking', { orderId: placedOrderId })}
+                className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
               >
-                Track in Order History
+                <MapPin size={14} />
+                <span>Track Live Delivery Map</span>
+              </button>
+              <button
+                onClick={() => navigateTo('profile')}
+                className="w-full py-2.5 bg-white hover:bg-gray-100 text-gray-700 font-semibold text-xs rounded-xl border border-gray-300 transition cursor-pointer"
+              >
+                View in Order History
               </button>
               <button
                 onClick={() => navigateTo('home')}
-                className="w-full py-2.5 bg-white hover:bg-gray-100 text-gray-700 font-semibold text-xs rounded-xl border border-gray-300 transition cursor-pointer"
+                className="w-full py-2 text-gray-500 hover:text-gray-800 font-semibold text-xs transition cursor-pointer"
               >
                 Back to Storefront
               </button>
@@ -222,127 +387,276 @@ export default function CheckoutScreen() {
             <div className="flex-1 space-y-6">
               
               {/* Shipping Information Card */}
-              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-2xs space-y-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                  <div className="w-5 h-5 bg-gray-900 text-white rounded-full flex items-center justify-center text-xs">
-                    1
+              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-2xs space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                    <div className="w-5 h-5 bg-gray-900 text-white rounded-full flex items-center justify-center text-xs">
+                      1
+                    </div>
+                    <h2>Delivery Destination</h2>
                   </div>
-                  <h2>Shipping Information</h2>
+                  {savedAddresses.length > 0 && (
+                    <span className="text-[11px] text-gray-500">
+                      {savedAddresses.length} saved address{savedAddresses.length > 1 ? 'es' : ''}
+                    </span>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">First Name</label>
-                    <input
-                      type="text"
-                      name="firstName"
-                      required
-                      value={formData.firstName}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
+                {/* API connection error notification */}
+                {addressApiError && (
+                  <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                    <AlertCircle size={15} className="flex-shrink-0" />
+                    <span>{addressApiError}</span>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">Last Name</label>
-                    <input
-                      type="text"
-                      name="lastName"
-                      required
-                      value={formData.lastName}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                )}
 
-                  <div className="space-y-1 sm:col-span-2">
-                    <label className="text-xs font-semibold text-gray-600">Email Address</label>
-                    <input
-                      type="email"
-                      name="email"
-                      required
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                {/* Address Selection Options (Fix 6) */}
+                {savedAddresses.length > 0 && (
+                  <div className="space-y-3 pt-1">
+                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Select Delivery Address
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {savedAddresses.map((addr) => {
+                        const isSelected = selectedAddressId === addr.addressId;
+                        const hasCoords = typeof addr.latitude === 'number' && typeof addr.longitude === 'number';
 
-                  <div className="space-y-1 sm:col-span-2">
-                    <label className="text-xs font-semibold text-gray-600">Phone Number</label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      required
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                        return (
+                          <div
+                            key={addr.addressId}
+                            onClick={() => setSelectedAddressId(addr.addressId)}
+                            className={`p-4 border rounded-xl cursor-pointer transition text-xs flex flex-col justify-between ${
+                              isSelected
+                                ? 'border-gray-900 bg-gray-50/80 shadow-xs ring-1 ring-gray-900'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-bold text-gray-900 truncate">{addr.recipientName}</span>
+                                <input
+                                  type="radio"
+                                  name="savedAddress"
+                                  checked={isSelected}
+                                  onChange={() => setSelectedAddressId(addr.addressId)}
+                                  className="text-gray-900 focus:ring-gray-900"
+                                />
+                              </div>
+                              <p className="text-gray-600 leading-snug truncate">{addr.street}</p>
+                              <p className="text-gray-600 truncate">{addr.city}, {addr.province} {addr.postalCode}</p>
+                              <p className="text-[11px] text-gray-400 mt-1">{addr.phone}</p>
+                            </div>
 
-                  <div className="space-y-1 sm:col-span-2">
-                    <label className="text-xs font-semibold text-gray-600">Street Address</label>
-                    <input
-                      type="text"
-                      name="street"
-                      required
-                      placeholder="e.g. 123 Main St, Apt 4"
-                      value={formData.street}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                            <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
+                              {hasCoords ? (
+                                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1 font-mono">
+                                  <MapPin size={10} />
+                                  <span>{addr.latitude.toFixed(3)}, {addr.longitude.toFixed(3)}</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                                  <AlertCircle size={10} />
+                                  <span>Missing map pin</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">City</label>
-                    <input
-                      type="text"
-                      name="city"
-                      required
-                      placeholder="e.g. New York"
-                      value={formData.city}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
+                      {/* "+ Add a new address" card */}
+                      <div
+                        onClick={() => setSelectedAddressId('new')}
+                        className={`p-4 border rounded-xl cursor-pointer transition text-xs flex flex-col items-center justify-center text-center gap-2 min-h-[120px] ${
+                          selectedAddressId === 'new'
+                            ? 'border-gray-900 bg-gray-50/80 shadow-xs ring-1 ring-gray-900'
+                            : 'border-dashed border-gray-300 hover:border-gray-400 bg-white'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center">
+                          <Plus size={16} />
+                        </div>
+                        <span className="font-bold text-gray-900">+ Add a New Address</span>
+                        <span className="text-[11px] text-gray-500">Pin a custom location on the map</span>
+                      </div>
+                    </div>
                   </div>
+                )}
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">State / Province</label>
-                    <input
-                      type="text"
-                      name="province"
-                      required
-                      placeholder="e.g. NY"
-                      value={formData.province}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                {/* If selected saved address lacks coordinates, show warning */}
+                {selectedAddressId !== 'new' && (() => {
+                  const chosen = savedAddresses.find(a => a.addressId === Number(selectedAddressId));
+                  const hasCoords = typeof chosen?.latitude === 'number' && typeof chosen?.longitude === 'number';
+                  if (!hasCoords) {
+                    return (
+                      <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2">
+                        <div className="flex items-center gap-2 font-bold">
+                          <AlertCircle size={16} className="text-amber-600 flex-shrink-0" />
+                          <span>Coordinates Required for Delivery Tracking</span>
+                        </div>
+                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                          This saved address does not have GPS coordinates. StyleShop requires exact coordinates to dispatch your order and show tracking checkpoints. Please switch to <strong>"+ Add a New Address"</strong> below to pin your location on the map.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAddressId('new')}
+                          className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-semibold text-xs transition cursor-pointer"
+                        >
+                          Switch to New Address with Map Pin
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center justify-between text-emerald-800">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 size={15} className="text-emerald-600" />
+                        <span className="font-semibold">Delivery GPS Pin Confirmed</span>
+                      </div>
+                      <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-emerald-200">
+                        {chosen.latitude.toFixed(4)}, {chosen.longitude.toFixed(4)}
+                      </span>
+                    </div>
+                  );
+                })()}
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">Postal Code</label>
-                    <input
-                      type="text"
-                      name="postalCode"
-                      required
-                      placeholder="e.g. 10001"
-                      value={formData.postalCode}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
-                  </div>
+                {/* New Address Form & Interactive Location Picker (Fix 5, 6, 7) */}
+                {selectedAddressId === 'new' && (
+                  <div className="space-y-4 pt-2 border-t border-gray-100 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                        New Address Details
+                      </h3>
+                      <span className="text-[11px] text-gray-400">All fields required</span>
+                    </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">Country</label>
-                    <input
-                      type="text"
-                      name="country"
-                      required
-                      placeholder="e.g. United States"
-                      value={formData.country}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-xs font-semibold text-gray-600">Recipient Full Name</label>
+                        <input
+                          type="text"
+                          name="recipientName"
+                          required
+                          placeholder="e.g. Juan dela Cruz"
+                          value={newAddress.recipientName}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-xs font-semibold text-gray-600">Phone Number</label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          required
+                          placeholder="e.g. 0917 123 4567"
+                          value={newAddress.phone}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-xs font-semibold text-gray-600">Street Address</label>
+                        <input
+                          type="text"
+                          name="street"
+                          required
+                          placeholder="e.g. Block 5 Lot 12 Sampaguita St"
+                          value={newAddress.street}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-600">City / Municipality</label>
+                        <input
+                          type="text"
+                          name="city"
+                          required
+                          placeholder="e.g. Davao City"
+                          value={newAddress.city}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-600">Province / Region</label>
+                        <input
+                          type="text"
+                          name="province"
+                          required
+                          placeholder="e.g. Davao del Sur"
+                          value={newAddress.province}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-600">Postal Code</label>
+                        <input
+                          type="text"
+                          name="postalCode"
+                          required
+                          placeholder="e.g. 8000"
+                          value={newAddress.postalCode}
+                          onChange={handleNewAddressChange}
+                          className="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-300 rounded-lg placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-600">Country</label>
+                        <input
+                          type="text"
+                          disabled
+                          value="Philippines"
+                          className="w-full px-3 py-2 text-xs bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Location Picker Map Section (Fix 7) */}
+                    <div className="pt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                          <MapPin size={13} className="text-rose-600" />
+                          <span>Pin Exact Delivery Location On Map</span>
+                        </label>
+                        <span className="text-[11px] text-gray-500">Required</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        Search your city/barangay, click "Use My Current Location", or click anywhere on the street map to place your delivery pin.
+                      </p>
+
+                      <LocationPickerMap
+                        latitude={newAddress.latitude}
+                        longitude={newAddress.longitude}
+                        onChange={(lat, lng) => {
+                          setNewAddress(prev => ({
+                            ...prev,
+                            latitude: lat,
+                            longitude: lng,
+                          }));
+                        }}
+                        onAddressResolved={(resolved) => {
+                          setNewAddress(prev => ({
+                            ...prev,
+                            street: prev.street || resolved.street,
+                            city: prev.city || resolved.city,
+                            province: prev.province || resolved.province,
+                            postalCode: prev.postalCode || resolved.postalCode,
+                          }));
+                        }}
+                        height="320px"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Payment Method Card */}
@@ -358,7 +672,7 @@ export default function CheckoutScreen() {
                   {[
                     { id: 'cod', label: 'Cash on Delivery (COD)', desc: 'Pay with cash upon package receipt', icon: Truck },
                     { id: 'card', label: 'Credit or Debit Card', desc: 'Secure payment via Visa, Mastercard, AMEX', icon: CreditCard },
-                    { id: 'ewallet', label: 'E-Wallet / PayPal', desc: 'Instant checkout with PayPal or digital balance', icon: Wallet },
+                    { id: 'ewallet', label: 'E-Wallet / PayPal', desc: 'Instant checkout with digital balance', icon: Wallet },
                   ].map((m) => {
                     const Icon = m.icon;
                     const selected = payMethod === m.id;

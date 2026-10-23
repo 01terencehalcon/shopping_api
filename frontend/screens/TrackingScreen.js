@@ -58,19 +58,12 @@ export default function TrackingScreen({ orderId: propOrderId, onBack }) {
         setTrackingData(res.data);
         setLastRefreshed(new Date());
         setError(null);
+      } else if (res && res.error) {
+        setError(res.error);
+        setTrackingData(null);
       } else {
-        // Fallback demo data if order not in DB yet
-        setTrackingData((prev) => prev || {
-          orderId,
-          status: 'shipped',
-          storeLocation: { latitude: 40.7128, longitude: -74.0060, label: 'StyleShop Central Hub' },
-          deliveryAddress: { recipientName: 'Customer', street: '123 Broadway St', city: 'New York', province: 'NY', postalCode: '10001', latitude: 40.7580, longitude: -73.9855 },
-          checkpoints: [
-            { id: 1, orderId, status: 'pending', latitude: 40.7128, longitude: -74.0060, note: 'Order received at distribution hub', createdAt: new Date(Date.now() - 3600000 * 4).toISOString() },
-            { id: 2, orderId, status: 'packed', latitude: 40.7150, longitude: -74.0010, note: 'Package quality inspection completed', createdAt: new Date(Date.now() - 3600000 * 2).toISOString() },
-            { id: 3, orderId, status: 'shipped', latitude: 40.7300, longitude: -73.9950, note: 'Departed sorting facility with transit carrier', createdAt: new Date(Date.now() - 1800000).toISOString() },
-          ],
-        });
+        setError('Tracking data is not available for this order.');
+        setTrackingData(null);
       }
     } catch (err) {
       console.warn('Failed to fetch tracking data:', err);

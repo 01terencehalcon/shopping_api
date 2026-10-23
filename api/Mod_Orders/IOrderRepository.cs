@@ -17,6 +17,8 @@ namespace ClothesShopping.Api.OrdersModule
             int userId,
             double total,
             IReadOnlyList<(int ProductId, int Quantity, double Price)> items,
-            int cartId);
+            int cartId,
+            AddressModule.Address? shippingAddress = null);
+        Task EnsureDatabaseMigratedAsync();
     }
 }

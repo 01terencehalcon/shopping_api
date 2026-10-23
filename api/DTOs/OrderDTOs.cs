@@ -6,6 +6,7 @@ namespace ClothesShopping.Api.DTOs
     public class CreateOrderRequest
     {
         public string? CouponCode { get; set; }
+        public int? AddressId { get; set; }
     }
 
     public class UpdateOrderRequest
@@ -21,6 +22,16 @@ namespace ClothesShopping.Api.DTOs
         public double Total { get; set; }
         public string OrderDate { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
+
+        // Delivery snapshot
+        public string? ShipRecipient { get; set; }
+        public string? ShipPhone { get; set; }
+        public string? ShipStreet { get; set; }
+        public string? ShipCity { get; set; }
+        public string? ShipProvince { get; set; }
+        public string? ShipPostalCode { get; set; }
+        public double? ShipLatitude { get; set; }
+        public double? ShipLongitude { get; set; }
     }
 
     public class CreateOrderItemRequest

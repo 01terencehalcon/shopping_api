@@ -900,10 +900,17 @@ internal sealed class TestOrderRepository : IOrderRepository
     public Task<int> AddAsync(Order entity) => Task.FromResult(1);
     public Task UpdateAsync(Order entity) => Task.CompletedTask;
     public Task DeleteAsync(int id) => Task.CompletedTask;
-    public Task<int> CreateOrderTransactionalAsync(int userId, double total, IReadOnlyList<(int ProductId, int Quantity, double Price)> items, int cartId)
+    public Task<int> CreateOrderTransactionalAsync(
+        int userId,
+        double total,
+        IReadOnlyList<(int ProductId, int Quantity, double Price)> items,
+        int cartId,
+        ClothesShopping.Api.AddressModule.Address? shippingAddress = null)
         => OnCreateOrderTransactionalAsync != null
             ? OnCreateOrderTransactionalAsync(userId, total, items, cartId)
             : Task.FromResult(1);
+
+    public Task EnsureDatabaseMigratedAsync() => Task.CompletedTask;
 }
 
 internal sealed class TestOrderItemRepository : IOrderItemRepository
